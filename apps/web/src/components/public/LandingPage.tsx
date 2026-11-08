@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ArrowRight,
   ShieldCheck,
@@ -18,18 +18,28 @@ import { ContactPage } from './ContactPage.js';
 import { PrivacyPolicyPage } from './PrivacyPolicyPage.js';
 import { TermsOfServicePage } from './TermsOfServicePage.js';
 import { CookiePolicyPage } from './CookiePolicyPage.js';
+import { useAuth } from '../../context/AuthContext.js';
 
 interface LandingPageProps {
   onEnterApp: () => void;
+  initialPath?: string;
+  autoOpenAuth?: 'signin' | 'signup' | null;
 }
 
-export function LandingPage({ onEnterApp }: LandingPageProps) {
+export function LandingPage({ onEnterApp, initialPath = 'home', autoOpenAuth = null }: LandingPageProps) {
+  const { isAuthenticated } = useAuth();
   const [currentView, setCurrentView] = useState<
     'home' | 'features' | 'integrations' | 'templates' | 'about' | 'contact' | 'privacy' | 'terms' | 'cookies'
-  >('home');
+  >(() => {
+    const clean = initialPath.replace(/^\/+/, '');
+    if (['features', 'integrations', 'templates', 'about', 'contact', 'privacy', 'terms', 'cookies'].includes(clean)) {
+      return clean as any;
+    }
+    return 'home';
+  });
 
-  const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalTab, setAuthModalTab] = useState<'signin' | 'signup'>('signup');
+  const [authModalOpen, setAuthModalOpen] = useState<boolean>(Boolean(autoOpenAuth));
+  const [authModalTab, setAuthModalTab] = useState<'signin' | 'signup'>(autoOpenAuth || 'signup');
 
   // Interactive demo pipeline active node
   const [activeDemoStep, setActiveDemoStep] = useState<number>(1);
@@ -39,12 +49,27 @@ export function LandingPage({ onEnterApp }: LandingPageProps) {
     setAuthModalOpen(true);
   };
 
+  const handleNavigateView = (view: any) => {
+    setCurrentView(view);
+    if (typeof window !== 'undefined') {
+      const path = view === 'home' ? '/' : `/${view}`;
+      window.history.pushState({}, '', path);
+    }
+  };
+
+  useEffect(() => {
+    if (autoOpenAuth) {
+      setAuthModalTab(autoOpenAuth);
+      setAuthModalOpen(true);
+    }
+  }, [autoOpenAuth]);
+
   if (currentView === 'features') {
     return (
       <div>
-        <PublicNavbar currentPath="features" onNavigate={setCurrentView as any} onOpenAuth={openAuth} />
-        <FeaturesPage onBack={() => setCurrentView('home')} onOpenAuth={openAuth} />
-        <PublicFooter onNavigate={setCurrentView as any} />
+        <PublicNavbar currentPath="features" onNavigate={handleNavigateView} onOpenAuth={openAuth} />
+        <FeaturesPage onBack={() => handleNavigateView('home')} onOpenAuth={openAuth} />
+        <PublicFooter onNavigate={handleNavigateView} />
         <AuthModal
           isOpen={authModalOpen}
           onClose={() => setAuthModalOpen(false)}
@@ -58,9 +83,9 @@ export function LandingPage({ onEnterApp }: LandingPageProps) {
   if (currentView === 'integrations') {
     return (
       <div>
-        <PublicNavbar currentPath="integrations" onNavigate={setCurrentView as any} onOpenAuth={openAuth} />
-        <IntegrationsPage onBack={() => setCurrentView('home')} onOpenAuth={openAuth} />
-        <PublicFooter onNavigate={setCurrentView as any} />
+        <PublicNavbar currentPath="integrations" onNavigate={handleNavigateView} onOpenAuth={openAuth} />
+        <IntegrationsPage onBack={() => handleNavigateView('home')} onOpenAuth={openAuth} />
+        <PublicFooter onNavigate={handleNavigateView} />
         <AuthModal
           isOpen={authModalOpen}
           onClose={() => setAuthModalOpen(false)}
@@ -74,9 +99,9 @@ export function LandingPage({ onEnterApp }: LandingPageProps) {
   if (currentView === 'about') {
     return (
       <div>
-        <PublicNavbar currentPath="about" onNavigate={setCurrentView as any} onOpenAuth={openAuth} />
-        <AboutPage onBack={() => setCurrentView('home')} />
-        <PublicFooter onNavigate={setCurrentView as any} />
+        <PublicNavbar currentPath="about" onNavigate={handleNavigateView} onOpenAuth={openAuth} />
+        <AboutPage onBack={() => handleNavigateView('home')} />
+        <PublicFooter onNavigate={handleNavigateView} />
         <AuthModal
           isOpen={authModalOpen}
           onClose={() => setAuthModalOpen(false)}
@@ -90,9 +115,9 @@ export function LandingPage({ onEnterApp }: LandingPageProps) {
   if (currentView === 'contact') {
     return (
       <div>
-        <PublicNavbar currentPath="contact" onNavigate={setCurrentView as any} onOpenAuth={openAuth} />
-        <ContactPage onBack={() => setCurrentView('home')} />
-        <PublicFooter onNavigate={setCurrentView as any} />
+        <PublicNavbar currentPath="contact" onNavigate={handleNavigateView} onOpenAuth={openAuth} />
+        <ContactPage onBack={() => handleNavigateView('home')} />
+        <PublicFooter onNavigate={handleNavigateView} />
         <AuthModal
           isOpen={authModalOpen}
           onClose={() => setAuthModalOpen(false)}
@@ -106,9 +131,9 @@ export function LandingPage({ onEnterApp }: LandingPageProps) {
   if (currentView === 'privacy') {
     return (
       <div>
-        <PublicNavbar currentPath="" onNavigate={setCurrentView as any} onOpenAuth={openAuth} />
-        <PrivacyPolicyPage onBack={() => setCurrentView('home')} />
-        <PublicFooter onNavigate={setCurrentView as any} />
+        <PublicNavbar currentPath="" onNavigate={handleNavigateView} onOpenAuth={openAuth} />
+        <PrivacyPolicyPage onBack={() => handleNavigateView('home')} />
+        <PublicFooter onNavigate={handleNavigateView} />
         <AuthModal
           isOpen={authModalOpen}
           onClose={() => setAuthModalOpen(false)}
@@ -122,9 +147,9 @@ export function LandingPage({ onEnterApp }: LandingPageProps) {
   if (currentView === 'terms') {
     return (
       <div>
-        <PublicNavbar currentPath="" onNavigate={setCurrentView as any} onOpenAuth={openAuth} />
-        <TermsOfServicePage onBack={() => setCurrentView('home')} />
-        <PublicFooter onNavigate={setCurrentView as any} />
+        <PublicNavbar currentPath="" onNavigate={handleNavigateView} onOpenAuth={openAuth} />
+        <TermsOfServicePage onBack={() => handleNavigateView('home')} />
+        <PublicFooter onNavigate={handleNavigateView} />
         <AuthModal
           isOpen={authModalOpen}
           onClose={() => setAuthModalOpen(false)}
@@ -138,9 +163,9 @@ export function LandingPage({ onEnterApp }: LandingPageProps) {
   if (currentView === 'cookies') {
     return (
       <div>
-        <PublicNavbar currentPath="" onNavigate={setCurrentView as any} onOpenAuth={openAuth} />
-        <CookiePolicyPage onBack={() => setCurrentView('home')} />
-        <PublicFooter onNavigate={setCurrentView as any} />
+        <PublicNavbar currentPath="" onNavigate={handleNavigateView} onOpenAuth={openAuth} />
+        <CookiePolicyPage onBack={() => handleNavigateView('home')} />
+        <PublicFooter onNavigate={handleNavigateView} />
         <AuthModal
           isOpen={authModalOpen}
           onClose={() => setAuthModalOpen(false)}
@@ -153,7 +178,7 @@ export function LandingPage({ onEnterApp }: LandingPageProps) {
 
   return (
     <div className="min-h-screen bg-background text-text-primary selection:bg-[#FF7306]/20 selection:text-[#FF7306]">
-      <PublicNavbar currentPath="home" onNavigate={setCurrentView as any} onOpenAuth={openAuth} />
+      <PublicNavbar currentPath="home" onNavigate={handleNavigateView} onOpenAuth={openAuth} />
 
       {/* Hero Section */}
       <section className="relative overflow-hidden pt-20 pb-24 md:pt-32 md:pb-36 border-b border-border/80">
@@ -190,7 +215,13 @@ export function LandingPage({ onEnterApp }: LandingPageProps) {
             </button>
 
             <button
-              onClick={onEnterApp}
+              onClick={() => {
+                if (isAuthenticated) {
+                  onEnterApp();
+                } else {
+                  openAuth('signin');
+                }
+              }}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-7 py-3.5 rounded-full bg-surface-elevated hover:bg-surface-hover text-text-primary font-semibold text-sm border border-border shadow-sm transition-colors"
             >
               <Play className="w-4 h-4 text-[#FF7306]" />

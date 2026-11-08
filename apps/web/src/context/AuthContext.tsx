@@ -134,11 +134,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    await api.logout();
+    try {
+      await api.logout();
+    } catch {}
+    try {
+      localStorage.removeItem('vulp_active_workflow_id');
+    } catch {}
     setTokenState(null);
     setUser(null);
     setWorkspace(null);
     setWorkspaces([]);
+    if (typeof window !== 'undefined') {
+      window.history.pushState({}, '', '/');
+    }
   };
 
   const switchWorkspace = async (workspaceId: string) => {

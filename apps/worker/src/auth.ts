@@ -522,7 +522,10 @@ authApp.get('/api/auth/google/signin', async (c) => {
     return c.json({ error: 'Google OAuth not configured on server' }, 500);
   }
 
-  const redirectUri = `${new URL(c.req.url).origin}/api/auth/google/signin/callback`;
+  const baseOrigin = c.env.GOOGLE_REDIRECT_URI
+    ? new URL(c.env.GOOGLE_REDIRECT_URI).origin
+    : new URL(c.req.url).origin;
+  const redirectUri = `${baseOrigin}/api/auth/google/signin/callback`;
   const state = nanoid(32);
 
   // Scopes for User Sign-In ONLY: strictly non-sensitive
@@ -570,7 +573,10 @@ authApp.get('/api/auth/google/signin/callback', async (c) => {
     `, 400);
   }
 
-  const redirectUri = `${new URL(c.req.url).origin}/api/auth/google/signin/callback`;
+  const baseOrigin = c.env.GOOGLE_REDIRECT_URI
+    ? new URL(c.env.GOOGLE_REDIRECT_URI).origin
+    : new URL(c.req.url).origin;
+  const redirectUri = `${baseOrigin}/api/auth/google/signin/callback`;
 
   // Exchange code for tokens
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {

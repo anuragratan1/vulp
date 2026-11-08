@@ -94,6 +94,20 @@ function NavItem({ icon, label, active, collapsed, onClick }: NavItemProps) {
   return content;
 }
 
+const PUBLIC_ROUTES = [
+  '/',
+  '/features',
+  '/integrations',
+  '/templates',
+  '/about',
+  '/contact',
+  '/privacy',
+  '/terms',
+  '/cookies',
+  '/login',
+  '/signup',
+];
+
 function MainStudioApp() {
   const {
     isAuthenticated,
@@ -104,8 +118,6 @@ function MainStudioApp() {
     switchWorkspace,
     createWorkspace,
   } = useAuth();
-
-  const [isDemoMode, setIsDemoMode] = useState(false);
 
   // Normalize incoming URL view parameters for backward compatibility
   const getInitialView = (): ViewMode => {
@@ -241,9 +253,34 @@ function MainStudioApp() {
     }
   }, [activeWorkflowId, view]);
 
+  // Sync post-login redirect destination
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (typeof window === 'undefined') return;
+
+    try {
+      const savedRedirect = sessionStorage.getItem('vulp_redirect_after_auth');
+      if (savedRedirect) {
+        sessionStorage.removeItem('vulp_redirect_after_auth');
+        window.history.replaceState({}, '', savedRedirect);
+        const restoredView = getInitialView();
+        setView(restoredView);
+        const params = new URLSearchParams(window.location.search);
+        const wfId = params.get('workflow');
+        if (wfId) setActiveWorkflowId(wfId);
+        return;
+      }
+    } catch {}
+
+    const curPath = window.location.pathname;
+    if (curPath === '/login' || curPath === '/signup') {
+      window.history.replaceState({}, '', '/');
+    }
+  }, [isAuthenticated]);
+
   // Load workflows and node types
   useEffect(() => {
-    if (!isAuthenticated && !isDemoMode) return;
+    if (!isAuthenticated) return;
 
     let isMounted = true;
     async function loadInitialData() {
@@ -269,7 +306,7 @@ function MainStudioApp() {
     return () => {
       isMounted = false;
     };
-  }, [isAuthenticated, isDemoMode, workspace?.id]);
+  }, [isAuthenticated, workspace?.id]);
 
   const activeWorkflow = workflows.find((w) => w.id === activeWorkflowId) || workflows[0] || null;
 
@@ -332,9 +369,34 @@ function MainStudioApp() {
     );
   }
 
-  // If not authenticated and not in demo mode, show Public Marketing Site
-  if (!isAuthenticated && !isDemoMode) {
-    return <LandingPage onEnterApp={() => setIsDemoMode(true)} />;
+  // Strict Authentication Gate:
+  // If not authenticated, NO anonymous access to Studio Canvas, workflows, runs, or credentials.
+  if (!isAuthenticated) {
+    const pathname = typeof window !== 'undefined' ? window.location.pathname.toLowerCase() : '/';
+    const search = typeof window !== 'undefined' ? window.location.search : '';
+
+    if (pathname === '/login') {
+      return <LandingPage initialPath="home" autoOpenAuth="signin" onEnterApp={() => {}} />;
+    }
+    if (pathname === '/signup') {
+      return <LandingPage initialPath="home" autoOpenAuth="signup" onEnterApp={() => {}} />;
+    }
+
+    const cleanPath = pathname.replace(/^\/+/, '');
+    if (PUBLIC_ROUTES.includes(pathname)) {
+      return <LandingPage initialPath={cleanPath || 'home'} onEnterApp={() => {}} />;
+    }
+
+    // Protected Route or deep link (e.g. /canvas, /editor, /automations, /settings, or ?view=... / ?workflow=...)
+    // Persist destination for post-login redirect, replace URL to /login, and open signin modal
+    if (typeof window !== 'undefined') {
+      try {
+        const fullTarget = pathname + search;
+        sessionStorage.setItem('vulp_redirect_after_auth', fullTarget);
+        window.history.replaceState({}, '', '/login');
+      } catch {}
+    }
+    return <LandingPage initialPath="home" autoOpenAuth="signin" onEnterApp={() => {}} />;
   }
 
   return (

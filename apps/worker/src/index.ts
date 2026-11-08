@@ -70,13 +70,7 @@ function getServices(env: Bindings, workspaceId?: string) {
 function getActiveWorkspace(c: any): schema.Workspace {
   const ws = c.get('workspace');
   if (ws) return ws;
-  return {
-    id: 'ws_init_default',
-    name: 'Primary Workspace',
-    ownerId: 'usr_init_admin',
-    createdAt: 0,
-    updatedAt: 0,
-  };
+  throw new Error('Workspace context missing: authentication required');
 }
 
 // Mount Authentication & OAuth sub-apps
@@ -93,15 +87,19 @@ app.use('/api/*', async (c, next) => {
   }
 
   const path = new URL(c.req.url).pathname;
+  const method = c.req.method.toUpperCase();
+
   const isPublic =
-    path === '/api/node-types' ||
-    path.startsWith('/api/templates') ||
-    path.startsWith('/api/auth/login') ||
-    path.startsWith('/api/auth/signup') ||
-    path.startsWith('/api/auth/forgot-password') ||
-    path.startsWith('/api/auth/reset-password') ||
-    path.startsWith('/api/auth/google') ||
-    path.startsWith('/api/auth/callback/google');
+    (path === '/api/node-types' && method === 'GET') ||
+    (path.startsWith('/api/templates') && method === 'GET' && !path.endsWith('/instantiate')) ||
+    path === '/api/auth/login' ||
+    path === '/api/auth/signup' ||
+    path === '/api/auth/forgot-password' ||
+    path === '/api/auth/reset-password' ||
+    path === '/api/auth/google/verify' ||
+    path === '/api/auth/google/signin' ||
+    path === '/api/auth/google/signin/callback' ||
+    path === '/api/auth/callback/google';
 
   if (isPublic) {
     return next();
@@ -111,29 +109,30 @@ app.use('/api/*', async (c, next) => {
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
   const { db } = getServices(c.env);
 
-  if (token) {
-    const sessionData = await verifySession(db, token);
-    if (sessionData) {
-      c.set('user', sessionData.user);
-      c.set('workspace', sessionData.workspace);
-      return next();
-    }
-    return c.json({ error: 'Unauthorized', message: 'Invalid or expired session. Please log in again.' }, 401);
+  if (!token) {
+    return c.json(
+      {
+        error: 'Unauthorized',
+        message: 'Authentication required. Please log in to access your workspace and workflows.',
+      },
+      401
+    );
   }
 
-  // Fallback for initial workspace migration safety
-  const defaultWs = await db
-    .select()
-    .from(schema.workspaces)
-    .where(eq(schema.workspaces.id, 'ws_init_default'))
-    .get();
-
-  if (defaultWs) {
-    c.set('workspace', defaultWs);
-    return next();
+  const sessionData = await verifySession(db, token);
+  if (!sessionData) {
+    return c.json(
+      {
+        error: 'Unauthorized',
+        message: 'Invalid or expired session. Please log in again.',
+      },
+      401
+    );
   }
 
-  return c.json({ error: 'Unauthorized', message: 'Authentication required' }, 401);
+  c.set('user', sessionData.user);
+  c.set('workspace', sessionData.workspace);
+  return next();
 });
 
 // -----------------------------------------------------------------------------
