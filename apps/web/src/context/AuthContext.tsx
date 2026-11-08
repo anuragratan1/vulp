@@ -104,7 +104,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'vulp_auth_token' && event.newValue) {
+        refreshUser();
+      }
+    };
+
     window.addEventListener('message', handleAuthMessage);
+    window.addEventListener('storage', handleStorage);
 
     let bc: BroadcastChannel | null = null;
     try {
@@ -123,9 +130,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       window.removeEventListener('message', handleAuthMessage);
+      window.removeEventListener('storage', handleStorage);
       bc?.close();
     };
-  }, [setSessionFromAuthResponse]);
+  }, [setSessionFromAuthResponse, refreshUser]);
 
   useEffect(() => {
     refreshUser();

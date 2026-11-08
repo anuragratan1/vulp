@@ -665,7 +665,27 @@ authApp.get('/api/auth/google/signin/callback', async (c) => {
     const tokenData = (await tokenRes.json()) as any;
     let profile: { sub: string; email: string; name: string; picture?: string } | null = null;
 
+    // Fast zero-latency in-memory decode of ID Token (received directly from Google via TLS POST)
     if (tokenData.id_token) {
+      try {
+        const parts = tokenData.id_token.split('.');
+        if (parts.length === 3) {
+          let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          while (b64.length % 4) b64 += '=';
+          const payload = JSON.parse(atob(b64));
+          if (payload && payload.email && (payload.aud === clientId || !clientId)) {
+            profile = {
+              sub: payload.sub,
+              email: payload.email,
+              name: payload.name || payload.email.split('@')[0],
+              picture: payload.picture,
+            };
+          }
+        }
+      } catch {}
+    }
+
+    if (!profile && tokenData.id_token) {
       profile = await verifyGoogleIdToken(tokenData.id_token, clientId);
     }
 
@@ -737,12 +757,12 @@ authApp.get('/api/auth/google/signin/callback', async (c) => {
               } catch(e) {}
               setTimeout(() => {
                 try { window.close(); } catch(e) {}
-              }, 800);
+              }, 300);
             } else {
               // Direct navigation fallback (e.g. mobile or blocked popup)
               setTimeout(() => {
                 window.location.href = ${JSON.stringify(returnOrigin)};
-              }, 600);
+              }, 300);
             }
           </script>
         </body>
