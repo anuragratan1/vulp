@@ -16,6 +16,8 @@ interface AuthContextType {
   isLoading: boolean;
   login: (params: { email: string; password: string }) => Promise<void>;
   signup: (params: { email: string; password: string; name: string }) => Promise<void>;
+  loginWithGoogleIdToken: (idToken: string) => Promise<void>;
+  setSessionFromAuthResponse: (res: any) => void;
   logout: () => Promise<void>;
   switchWorkspace: (workspaceId: string) => Promise<void>;
   createWorkspace: (name: string) => Promise<void>;
@@ -60,6 +62,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     }
   }, []);
+
+  const setSessionFromAuthResponse = useCallback((res: any) => {
+    if (!res || !res.token) return;
+    setAuthToken(res.token);
+    setTokenState(res.token);
+    setUser(res.user);
+    setWorkspace(res.workspace);
+    setWorkspaces(res.workspaces || []);
+    setIsLoading(false);
+  }, []);
+
+  const loginWithGoogleIdToken = async (idToken: string) => {
+    const res = await api.loginWithGoogleIdToken(idToken);
+    setSessionFromAuthResponse(res);
+  };
+
+  useEffect(() => {
+    const handleAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'vulp_auth_success' && event.data.token) {
+        setSessionFromAuthResponse({
+          token: event.data.token,
+          user: event.data.user,
+          workspace: event.data.workspace,
+          workspaces: event.data.workspaces,
+        });
+      }
+    };
+
+    window.addEventListener('message', handleAuthMessage);
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('vulp_auth');
+      bc.onmessage = (event) => {
+        if (event.data?.type === 'vulp_auth_success' && event.data.token) {
+          setSessionFromAuthResponse({
+            token: event.data.token,
+            user: event.data.user,
+            workspace: event.data.workspace,
+            workspaces: event.data.workspaces,
+          });
+        }
+      };
+    } catch {}
+
+    return () => {
+      window.removeEventListener('message', handleAuthMessage);
+      bc?.close();
+    };
+  }, [setSessionFromAuthResponse]);
 
   useEffect(() => {
     refreshUser();
@@ -130,6 +182,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         login,
         signup,
+        loginWithGoogleIdToken,
+        setSessionFromAuthResponse,
         logout,
         switchWorkspace,
         createWorkspace,
@@ -151,3 +205,4 @@ export function useAuth() {
   }
   return context;
 }
+

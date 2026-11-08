@@ -249,7 +249,7 @@ authApp.post('/api/auth/login', async (c) => {
     .where(eq(schema.users.email, email))
     .get();
 
-  if (!user || !verifyPassword(password, user.passwordHash)) {
+  if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
     return c.json({ error: 'Invalid email or password' }, 401);
   }
 
@@ -294,6 +294,379 @@ authApp.post('/api/auth/login', async (c) => {
     workspace: activeWorkspace,
     workspaces,
   });
+});
+
+/**
+ * Verifies a Google ID Token using Google's tokeninfo API.
+ * Validates audience, issuer, expiration, and verified email status.
+ */
+export async function verifyGoogleIdToken(
+  idToken: string,
+  expectedClientId: string
+): Promise<{
+  sub: string;
+  email: string;
+  name: string;
+  picture?: string;
+} | null> {
+  try {
+    const res = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as Record<string, any>;
+
+    // Audience must match our Google Client ID
+    if (data.aud !== expectedClientId) {
+      return null;
+    }
+
+    // Issuer must be Google
+    if (
+      data.iss !== 'https://accounts.google.com' &&
+      data.iss !== 'accounts.google.com'
+    ) {
+      return null;
+    }
+
+    // Expiration check
+    if (Number(data.exp) * 1000 <= Date.now()) {
+      return null;
+    }
+
+    // Email must be verified by Google
+    if (data.email_verified !== 'true' && data.email_verified !== true) {
+      return null;
+    }
+
+    return {
+      sub: data.sub,
+      email: data.email,
+      name: data.name || data.email?.split('@')[0] || 'Google User',
+      picture: data.picture,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Handles account creation, safe account linking, and workspace resolution for a verified Google user.
+ */
+export async function handleGoogleAuthUser(
+  db: DrizzleD1Database<typeof schema>,
+  googleProfile: {
+    sub: string;
+    email: string;
+    name: string;
+    picture?: string;
+  }
+) {
+  const email = googleProfile.email.trim().toLowerCase();
+  const now = Date.now();
+
+  // 1. Check if user exists by googleId
+  let user = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.googleId, googleProfile.sub))
+    .get();
+
+  // 2. If not found by googleId, check by email
+  if (!user) {
+    user = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .get();
+
+    if (user) {
+      // Safe Account Linking: Link verified Google identity to existing account
+      await db
+        .update(schema.users)
+        .set({
+          googleId: googleProfile.sub,
+          avatarUrl: user.avatarUrl || googleProfile.picture || null,
+          emailVerified: true,
+          updatedAt: now,
+        })
+        .where(eq(schema.users.id, user.id));
+
+      user = (await db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.id, user.id))
+        .get())!;
+    }
+  }
+
+  // 3. If still not found, create new user + personal workspace
+  if (!user) {
+    const userId = `usr_${nanoid(20)}`;
+    const workspaceId = `ws_${nanoid(20)}`;
+    const memberId = `mem_${nanoid(20)}`;
+
+    await db.insert(schema.users).values({
+      id: userId,
+      email,
+      passwordHash: null,
+      name: googleProfile.name || email.split('@')[0],
+      avatarUrl: googleProfile.picture || null,
+      googleId: googleProfile.sub,
+      emailVerified: true,
+      onboardingCompleted: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await db.insert(schema.workspaces).values({
+      id: workspaceId,
+      name: `${googleProfile.name || 'Personal'}'s Workspace`,
+      ownerId: userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await db.insert(schema.workspaceMembers).values({
+      id: memberId,
+      workspaceId,
+      userId,
+      role: 'owner',
+      createdAt: now,
+    });
+
+    user = (await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .get())!;
+  }
+
+  // 4. Resolve active workspace
+  let workspaces = await getUserWorkspaces(db, user.id);
+  let activeWorkspace = workspaces[0];
+  if (!activeWorkspace) {
+    const wsId = `ws_${nanoid(20)}`;
+    await db.insert(schema.workspaces).values({
+      id: wsId,
+      name: `${user.name}'s Workspace`,
+      ownerId: user.id,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.workspaceMembers).values({
+      id: `mem_${nanoid(20)}`,
+      workspaceId: wsId,
+      userId: user.id,
+      role: 'owner',
+      createdAt: now,
+    });
+    workspaces = await getUserWorkspaces(db, user.id);
+    activeWorkspace = workspaces[0];
+  }
+
+  // 5. Create Session
+  const token = await createSession(db, user.id, activeWorkspace.id);
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      avatarUrl: user.avatarUrl,
+      emailVerified: user.emailVerified,
+      onboardingCompleted: user.onboardingCompleted,
+      createdAt: user.createdAt,
+    },
+    workspace: activeWorkspace,
+    workspaces,
+  };
+}
+
+// Verify Google ID Token (from Google Identity Services)
+authApp.post('/api/auth/google/verify', async (c) => {
+  const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'anon';
+  if (!checkRateLimit(clientIp, 30, 60000)) {
+    return c.json({ error: 'Too many requests', message: 'Please wait before trying again.' }, 429);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const idToken = body.idToken;
+
+  if (!idToken || typeof idToken !== 'string') {
+    return c.json({ error: 'Missing idToken' }, 400);
+  }
+
+  const clientId = c.env.GOOGLE_CLIENT_ID || '';
+  if (!clientId) {
+    return c.json({ error: 'Google OAuth not configured on server' }, 500);
+  }
+
+  const profile = await verifyGoogleIdToken(idToken, clientId);
+  if (!profile) {
+    return c.json({ error: 'Invalid or expired Google ID token' }, 401);
+  }
+
+  const { drizzle } = await import('drizzle-orm/d1');
+  const db = drizzle(c.env.DB, { schema });
+
+  const result = await handleGoogleAuthUser(db, profile);
+  return c.json(result);
+});
+
+// Google Sign-In Popup Initiation (Non-sensitive scopes only)
+authApp.get('/api/auth/google/signin', async (c) => {
+  const clientId = c.env.GOOGLE_CLIENT_ID || '';
+  if (!clientId) {
+    return c.json({ error: 'Google OAuth not configured on server' }, 500);
+  }
+
+  const redirectUri = `${new URL(c.req.url).origin}/api/auth/google/signin/callback`;
+  const state = nanoid(32);
+
+  // Scopes for User Sign-In ONLY: strictly non-sensitive
+  const scopes = ['openid', 'email', 'profile'].join(' ');
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: scopes,
+    access_type: 'online',
+    prompt: 'select_account',
+    state,
+  });
+
+  return c.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+// Google Sign-In Popup Callback
+authApp.get('/api/auth/google/signin/callback', async (c) => {
+  const code = c.req.query('code');
+  const error = c.req.query('error');
+  const clientId = c.env.GOOGLE_CLIENT_ID || '';
+  const clientSecret = c.env.GOOGLE_CLIENT_SECRET || '';
+
+  if (error || !code) {
+    return c.html(`
+      <!DOCTYPE html>
+      <html>
+        <body style="background:#0F0F0F; color:#F87171; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
+          <div>
+            <h2 style="font-size:18px; margin-bottom:8px;">Sign-In Cancelled</h2>
+            <p style="color:#A3A3A3; font-size:13px; margin-bottom:16px;">${error || 'No authorization code received'}</p>
+            <script>setTimeout(() => window.close(), 2000);</script>
+          </div>
+        </body>
+      </html>
+    `, 400);
+  }
+
+  const redirectUri = `${new URL(c.req.url).origin}/api/auth/google/signin/callback`;
+
+  // Exchange code for tokens
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: 'authorization_code',
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    return c.html(`
+      <!DOCTYPE html>
+      <html>
+        <body style="background:#0F0F0F; color:#F87171; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
+          <div>
+            <h2 style="font-size:18px; margin-bottom:8px;">Sign-In Failed</h2>
+            <p style="color:#A3A3A3; font-size:13px; margin-bottom:16px;">Failed to exchange authorization code with Google.</p>
+            <script>setTimeout(() => window.close(), 2500);</script>
+          </div>
+        </body>
+      </html>
+    `, 400);
+  }
+
+  const tokenData = (await tokenRes.json()) as any;
+  let profile: { sub: string; email: string; name: string; picture?: string } | null = null;
+
+  if (tokenData.id_token) {
+    profile = await verifyGoogleIdToken(tokenData.id_token, clientId);
+  }
+
+  if (!profile && tokenData.access_token) {
+    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    if (userRes.ok) {
+      const u = (await userRes.json()) as any;
+      if (u.verified_email || u.email_verified) {
+        profile = {
+          sub: u.id,
+          email: u.email,
+          name: u.name || u.email?.split('@')[0] || 'Google User',
+          picture: u.picture,
+        };
+      }
+    }
+  }
+
+  if (!profile) {
+    return c.html(`
+      <!DOCTYPE html>
+      <html>
+        <body style="background:#0F0F0F; color:#F87171; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
+          <div>
+            <h2 style="font-size:18px; margin-bottom:8px;">Verification Failed</h2>
+            <p style="color:#A3A3A3; font-size:13px; margin-bottom:16px;">Could not verify your identity with Google.</p>
+            <script>setTimeout(() => window.close(), 2500);</script>
+          </div>
+        </body>
+      </html>
+    `, 400);
+  }
+
+  const { drizzle } = await import('drizzle-orm/d1');
+  const db = drizzle(c.env.DB, { schema });
+  const authResult = await handleGoogleAuthUser(db, profile);
+
+  return c.html(`
+    <!DOCTYPE html>
+    <html>
+      <head><title>Signed in with Google</title></head>
+      <body style="background:#0F0F0F; color:#F5F5F5; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
+        <div>
+          <div style="width:48px; height:48px; margin:0 auto 16px; background:#1A2E1A; border:1px solid #22C55E; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#22C55E; font-size:24px;">✓</div>
+          <h2 style="margin:0 0 8px 0; font-size:18px;">Welcome to Vulp!</h2>
+          <p style="color:#A3A3A3; font-size:13px; margin:0 0 16px 0;">Signed in as <strong>${profile.email}</strong></p>
+          <p style="color:#737373; font-size:12px;">This window will close automatically...</p>
+        </div>
+        <script>
+          const payload = {
+            type: 'vulp_auth_success',
+            token: ${JSON.stringify(authResult.token)},
+            user: ${JSON.stringify(authResult.user)},
+            workspace: ${JSON.stringify(authResult.workspace)},
+            workspaces: ${JSON.stringify(authResult.workspaces)}
+          };
+          try {
+            const bc = new BroadcastChannel('vulp_auth');
+            bc.postMessage(payload);
+          } catch(e) {}
+          if (window.opener) {
+            window.opener.postMessage(payload, '*');
+          }
+          setTimeout(() => window.close(), 1000);
+        </script>
+      </body>
+    </html>
+  `);
 });
 
 // Logout
@@ -537,15 +910,17 @@ authApp.put('/api/auth/password', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { currentPassword, newPassword } = body;
 
-  if (!currentPassword || !newPassword) {
-    return c.json({ error: 'Both current password and new password are required' }, 400);
-  }
-  if (newPassword.length < 8) {
-    return c.json({ error: 'New password must be at least 8 characters long' }, 400);
+  if (sessionData.user.passwordHash) {
+    if (!currentPassword) {
+      return c.json({ error: 'Current password is required' }, 400);
+    }
+    if (!verifyPassword(currentPassword, sessionData.user.passwordHash)) {
+      return c.json({ error: 'Current password is incorrect' }, 400);
+    }
   }
 
-  if (!verifyPassword(currentPassword, sessionData.user.passwordHash)) {
-    return c.json({ error: 'Current password is incorrect' }, 400);
+  if (!newPassword || newPassword.length < 8) {
+    return c.json({ error: 'New password must be at least 8 characters long' }, 400);
   }
 
   const newHash = hashPassword(newPassword);
@@ -708,3 +1083,4 @@ authApp.delete('/api/auth/account', async (c) => {
 
   return c.json({ success: true, message: 'Account and all associated workspaces and data permanently deleted.' });
 });
+

@@ -34,9 +34,10 @@ export function initDatabase(dbPath: string = getDbPath()) {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
+      password_hash TEXT,
       name TEXT NOT NULL,
       avatar_url TEXT,
+      google_id TEXT UNIQUE,
       email_verified INTEGER NOT NULL DEFAULT 0,
       onboarding_completed INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
@@ -135,6 +136,8 @@ export function initDatabase(dbPath: string = getDbPath()) {
   `);
 
   // Migrate columns for existing databases if needed
+  try { sqlite.exec(`ALTER TABLE users ADD COLUMN google_id TEXT;`); } catch {}
+  try { sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);`); } catch {}
   try { sqlite.exec(`ALTER TABLE workflows ADD COLUMN workspace_id TEXT;`); } catch {}
   try { sqlite.exec(`ALTER TABLE credentials ADD COLUMN workspace_id TEXT;`); } catch {}
   try { sqlite.exec(`ALTER TABLE runs ADD COLUMN workspace_id TEXT;`); } catch {}

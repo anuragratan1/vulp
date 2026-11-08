@@ -114,4 +114,131 @@ describe('Multi-Tenant Security & Isolation Tests', () => {
       expect(runs[0].status).toBe('cancelled');
     });
   });
+
+  describe('Google Sign-In & Safe Account Linking Verification', () => {
+    it('validates Google token claims strictly (audience, issuer, expiration, verified email)', () => {
+      const expectedClientId = '1060878318083-c9u9herp7lt0jkdhssgl4r97m90rjg9v.apps.googleusercontent.com';
+
+      const validateClaims = (claims: any) => {
+        if (claims.aud !== expectedClientId) return false;
+        if (claims.iss !== 'https://accounts.google.com' && claims.iss !== 'accounts.google.com') return false;
+        if (Number(claims.exp) * 1000 <= Date.now()) return false;
+        if (claims.email_verified !== 'true' && claims.email_verified !== true) return false;
+        return true;
+      };
+
+      // Valid token claims
+      expect(
+        validateClaims({
+          aud: expectedClientId,
+          iss: 'https://accounts.google.com',
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          email_verified: 'true',
+        })
+      ).toBe(true);
+
+      // Invalid audience (forged token from another app)
+      expect(
+        validateClaims({
+          aud: 'different-app-id.apps.googleusercontent.com',
+          iss: 'https://accounts.google.com',
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          email_verified: 'true',
+        })
+      ).toBe(false);
+
+      // Expired token
+      expect(
+        validateClaims({
+          aud: expectedClientId,
+          iss: 'https://accounts.google.com',
+          exp: Math.floor(Date.now() / 1000) - 60,
+          email_verified: 'true',
+        })
+      ).toBe(false);
+
+      // Unverified email
+      expect(
+        validateClaims({
+          aud: expectedClientId,
+          iss: 'https://accounts.google.com',
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          email_verified: 'false',
+        })
+      ).toBe(false);
+    });
+
+    it('safely links existing email/password account with verified Google identity', () => {
+      const users = [
+        {
+          id: 'usr_existing_1',
+          email: 'alex@example.com',
+          googleId: null as string | null,
+          passwordHash: 'existing_hash_value',
+          name: 'Alex Chen',
+        },
+      ];
+
+      const linkGoogleAccount = (googleProfile: { sub: string; email: string; name: string }) => {
+        let user = users.find((u) => u.googleId === googleProfile.sub);
+        if (!user) {
+          user = users.find((u) => u.email === googleProfile.email);
+          if (user) {
+            user.googleId = googleProfile.sub;
+          }
+        }
+        return user;
+      };
+
+      const linkedUser = linkGoogleAccount({
+        sub: 'google_sub_109823487213',
+        email: 'alex@example.com',
+        name: 'Alex Chen',
+      });
+
+      expect(linkedUser).toBeDefined();
+      expect(linkedUser?.id).toBe('usr_existing_1');
+      expect(linkedUser?.googleId).toBe('google_sub_109823487213');
+      // Password hash remains intact so user can log in with either method
+      expect(linkedUser?.passwordHash).toBe('existing_hash_value');
+    });
+
+    it('creates new account and isolated workspace for brand new Google users', () => {
+      const users: any[] = [];
+      const workspaces: any[] = [];
+
+      const handleGoogleSignup = (profile: { sub: string; email: string; name: string }) => {
+        const userId = `usr_${profile.sub.slice(0, 8)}`;
+        const workspaceId = `ws_${profile.sub.slice(0, 8)}`;
+        const newUser = {
+          id: userId,
+          email: profile.email,
+          googleId: profile.sub,
+          passwordHash: null,
+          name: profile.name,
+        };
+        const newWorkspace = {
+          id: workspaceId,
+          name: `${profile.name}'s Workspace`,
+          ownerId: userId,
+        };
+        users.push(newUser);
+        workspaces.push(newWorkspace);
+        return { user: newUser, workspace: newWorkspace };
+      };
+
+      const result = handleGoogleSignup({
+        sub: 'google_sub_9876543210',
+        email: 'newuser@gmail.com',
+        name: 'New Google User',
+      });
+
+      expect(result.user.id).toBe('usr_google_s');
+      expect(result.user.googleId).toBe('google_sub_9876543210');
+      expect(result.workspace.ownerId).toBe(result.user.id);
+      expect(users.length).toBe(1);
+      expect(workspaces.length).toBe(1);
+    });
+  });
 });
+

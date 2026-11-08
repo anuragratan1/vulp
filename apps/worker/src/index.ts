@@ -668,7 +668,7 @@ app.post('/api/credentials', async (c) => {
 
 app.delete('/api/credentials/:id', async (c) => {
   const ws = getActiveWorkspace(c);
-  const { db } = getServices(c.env, ws.id);
+  const { db, vault } = getServices(c.env, ws.id);
   const id = c.req.param('id');
   const existing = await db
     .select()
@@ -676,6 +676,20 @@ app.delete('/api/credentials/:id', async (c) => {
     .where(and(eq(schema.credentials.id, id), eq(schema.credentials.workspaceId, ws.id)))
     .get();
   if (!existing) return c.json({ error: 'Credential not found' }, 404);
+
+  // If this is an OAuth integration token, revoke it with Google if applicable
+  if (existing.type === 'oauth2' || existing.type === 'google') {
+    try {
+      const secrets = vault.decryptSecrets(existing.dataEnc);
+      const tokenToRevoke = secrets.refreshToken || secrets.accessToken;
+      if (tokenToRevoke) {
+        await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(tokenToRevoke)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        }).catch(() => {});
+      }
+    } catch {}
+  }
 
   await db
     .delete(schema.credentials)

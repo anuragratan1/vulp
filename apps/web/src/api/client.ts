@@ -277,6 +277,26 @@ export const api = {
     return data;
   },
 
+  async loginWithGoogleIdToken(idToken: string): Promise<AuthResponse> {
+    const res = await request('/api/auth/google/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Google authentication failed');
+    }
+    setAuthToken(data.token);
+    this.invalidateCache();
+    return data;
+  },
+
+  getGoogleSignInUrl(): string {
+    const url = new URL(`${API_BASE}/api/auth/google/signin`, window.location.href);
+    return url.toString();
+  },
+
   async logout(): Promise<void> {
     try {
       await request('/api/auth/logout', { method: 'POST' });
