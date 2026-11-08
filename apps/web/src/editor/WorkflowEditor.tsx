@@ -210,37 +210,37 @@ export function WorkflowEditor({
     }
   }, [workflow.id, workflow.active, workflow.name, getGraphSignature, isDirty, name]);
 
-  // Hydrate latest run outputs on workflow load so dynamic variable discovery has runtime outputs
-  useEffect(() => {
+  // Fetch latest run outputs for current workflow
+  const fetchLatestRun = useCallback(async () => {
     if (!workflow.id) return;
-    let isCancelled = false;
-
-    api
-      .getRuns()
-      .then(async (runs) => {
-        if (isCancelled) return;
-        const wfRuns = runs.filter((r) => r.workflowId === workflow.id);
-        if (wfRuns.length > 0) {
-          const latestRun = wfRuns[0];
-          try {
-            const details = await api.getRunDetails(latestRun.id);
-            if (!isCancelled && details && details.nodeRuns) {
-              setCurrentRun(details.run);
-              setNodeRuns(details.nodeRuns);
-            }
-          } catch (err) {
-            console.warn('Could not load latest run details:', err);
+    try {
+      const runs = await api.getRuns();
+      const wfRuns = runs.filter((r) => r.workflowId === workflow.id);
+      if (wfRuns.length > 0) {
+        const latestRun = wfRuns[0];
+        const details = await api.getRunDetails(latestRun.id);
+        if (details && details.run) {
+          setCurrentRun(details.run);
+          if (details.nodeRuns) {
+            setNodeRuns(details.nodeRuns);
+            setNodes((nds) =>
+              nds.map((n) => {
+                const nr = details.nodeRuns.find((r) => r.nodeKey === n.id);
+                return nr ? { ...n, data: { ...n.data, executionStatus: nr.status } } : n;
+              })
+            );
           }
         }
-      })
-      .catch((err) => {
-        console.warn('Could not load runs list:', err);
-      });
-
-    return () => {
-      isCancelled = true;
-    };
+      }
+    } catch (err) {
+      console.warn('Could not load latest run details:', err);
+    }
   }, [workflow.id]);
+
+  // Hydrate latest run outputs on workflow load so dynamic variable discovery has runtime outputs
+  useEffect(() => {
+    fetchLatestRun();
+  }, [fetchLatestRun]);
 
   // Handle React Flow node changes
   const onNodesChange = useCallback((changes: NodeChange<CanvasNode>[]) => {
@@ -723,6 +723,43 @@ export function WorkflowEditor({
         triggerPayload: parsedPayload,
       });
 
+      // Active fallback polling ensures execution status & logs are updated even if SSE drops
+      let pollActive = true;
+      const pollRun = async () => {
+        if (!pollActive) return;
+        try {
+          const details = await api.getRunDetails(runId);
+          if (details && details.run) {
+            setCurrentRun(details.run);
+            if (details.nodeRuns && details.nodeRuns.length > 0) {
+              setNodeRuns(details.nodeRuns);
+              setNodes((nds) =>
+                nds.map((n) => {
+                  const nr = details.nodeRuns.find((r) => r.nodeKey === n.id);
+                  return nr ? { ...n, data: { ...n.data, executionStatus: nr.status } } : n;
+                })
+              );
+            }
+            if (details.run.status !== 'running' && details.run.status !== 'queued') {
+              pollActive = false;
+              setIsRunning(false);
+              setEdges((eds) =>
+                eds.map((edge) => ({ ...edge, data: { ...edge.data, isExecuting: false } }))
+              );
+              return;
+            }
+          }
+        } catch (pollErr) {
+          console.warn('[Poll] Run poll error:', pollErr);
+        }
+        if (pollActive) {
+          setTimeout(pollRun, 500);
+        }
+      };
+
+      // Trigger immediate poll
+      setTimeout(pollRun, 150);
+
       const eventsUrl = api.getRunEventsUrl(runId);
       const eventSource = new EventSource(eventsUrl);
 
@@ -730,7 +767,15 @@ export function WorkflowEditor({
         try {
           const snapshot = JSON.parse(e.data);
           if (snapshot.run) setCurrentRun(snapshot.run);
-          if (snapshot.nodeRuns) setNodeRuns(snapshot.nodeRuns);
+          if (snapshot.nodeRuns && snapshot.nodeRuns.length > 0) {
+            setNodeRuns(snapshot.nodeRuns);
+            setNodes((nds) =>
+              nds.map((n) => {
+                const nr = snapshot.nodeRuns.find((r: any) => r.nodeKey === n.id);
+                return nr ? { ...n, data: { ...n.data, executionStatus: nr.status } } : n;
+              })
+            );
+          }
         } catch (err) {
           console.error('Error parsing SSE snapshot:', err);
         }
@@ -801,21 +846,26 @@ export function WorkflowEditor({
 
       eventSource.addEventListener('run.finished', (e) => {
         const evt = JSON.parse(e.data);
+        pollActive = false;
         setIsRunning(false);
         setCurrentRun((prev) => (prev ? { ...prev, status: evt.status, error: evt.error } : null));
         setEdges((eds) =>
           eds.map((edge) => ({ ...edge, data: { ...edge.data, isExecuting: false } }))
         );
         eventSource.close();
+        // Final database sync to ensure all logs and step outputs are in state
+        api.getRunDetails(runId).then((details) => {
+          if (details && details.nodeRuns) {
+            setCurrentRun(details.run);
+            setNodeRuns(details.nodeRuns);
+          }
+        }).catch(() => {});
       });
 
       eventSource.onerror = (err) => {
         console.warn('SSE connection error / closed:', err);
         eventSource.close();
-        setIsRunning(false);
-        setEdges((eds) =>
-          eds.map((edge) => ({ ...edge, data: { ...edge.data, isExecuting: false } }))
-        );
+        // Do not force isRunning to false here; background pollRun will finish and set status
       };
     } catch (err: any) {
       setIsRunning(false);
@@ -997,7 +1047,15 @@ export function WorkflowEditor({
             <Tooltip.Trigger asChild>
               <button
                 type="button"
-                onClick={() => setIsPanelVisible((prev) => !prev)}
+                onClick={() => {
+                  setIsPanelVisible((prev) => {
+                    const next = !prev;
+                    if (next) {
+                      fetchLatestRun();
+                    }
+                    return next;
+                  });
+                }}
                 className={`p-1.5 px-2 rounded-[8px] transition-all flex items-center gap-1.5 text-xs font-medium cursor-pointer ${
                   isPanelVisible
                     ? 'bg-[#222222] text-[#FF7306] border border-[#333333] shadow-sm'
@@ -1358,6 +1416,7 @@ export function WorkflowEditor({
               onHeightChange={setPanelHeight}
               onClose={() => setIsPanelVisible(false)}
               onReRun={handleRunWorkflow}
+              onRefresh={fetchLatestRun}
               onCancel={handleCancelRun}
               isRunning={isRunning}
             />

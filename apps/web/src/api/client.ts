@@ -1015,7 +1015,9 @@ export const api = {
   },
 
   getRunEventsUrl(runId: string): string {
-    return `${API_BASE}/api/runs/${runId}/events`;
+    const token = getAuthToken();
+    const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${API_BASE}/api/runs/${runId}/events${qs}`;
   },
 
   // ---------------------------------------------------------------------------

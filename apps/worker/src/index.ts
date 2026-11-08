@@ -108,7 +108,8 @@ app.use('/api/*', async (c, next) => {
   }
 
   const authHeader = c.req.header('authorization') || '';
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  const queryToken = c.req.query('token') || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim() || queryToken.trim();
   const { db } = getServices(c.env);
 
   if (!token) {
@@ -698,15 +699,64 @@ app.get('/api/runs/:runId/events', async (c) => {
     .all();
 
   const body = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       const encoder = new TextEncoder();
       const send = (event: string, data: any) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          // stream closed
+        }
       };
 
-      send('snapshot', { run, nodeRuns });
-      send('run.finished', { runId, status: run?.status || 'succeeded', error: run?.error });
-      controller.close();
+      let currentRun = run;
+      let currentNodeRuns = nodeRuns;
+      let attempts = 0;
+
+      // Send initial snapshot
+      send('snapshot', { run: currentRun, nodeRuns: currentNodeRuns });
+
+      // If run is still running or queued, poll D1 to stream real-time step progress
+      while (
+        currentRun &&
+        (currentRun.status === 'running' || currentRun.status === 'queued') &&
+        attempts < 30
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        attempts++;
+
+        try {
+          const updatedRun = await db
+            .select()
+            .from(schema.runs)
+            .where(and(eq(schema.runs.id, runId), eq(schema.runs.workspaceId, ws.id)))
+            .get();
+          if (!updatedRun) break;
+          currentRun = updatedRun;
+
+          const updatedNodeRuns = await db
+            .select()
+            .from(schema.nodeRuns)
+            .where(eq(schema.nodeRuns.runId, runId))
+            .orderBy(asc(schema.nodeRuns.seq))
+            .all();
+          currentNodeRuns = updatedNodeRuns;
+
+          send('snapshot', { run: currentRun, nodeRuns: currentNodeRuns });
+        } catch {
+          break;
+        }
+      }
+
+      send('run.finished', {
+        runId,
+        status: currentRun?.status || 'succeeded',
+        error: currentRun?.error,
+      });
+
+      try {
+        controller.close();
+      } catch {}
     },
   });
 

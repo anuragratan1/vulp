@@ -26,6 +26,7 @@ export interface ExecutionPanelProps {
   onHeightChange: (newHeight: number) => void;
   onClose: () => void;
   onReRun?: () => void;
+  onRefresh?: () => void;
   onCancel?: () => void;
   isRunning?: boolean;
 }
@@ -40,6 +41,7 @@ export function ExecutionPanel({
   onHeightChange,
   onClose,
   onReRun,
+  onRefresh,
   onCancel,
   isRunning = false,
 }: ExecutionPanelProps) {
@@ -279,6 +281,19 @@ export function ExecutionPanel({
             </button>
           )}
 
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isRunning}
+              className="p-1 rounded-[6px] text-text-muted hover:text-text-primary hover:bg-[#222222] transition-colors disabled:opacity-40"
+              title="Refresh logs & step outputs"
+              aria-label="Refresh logs"
+            >
+              <RotateCw className={`w-3.5 h-3.5 ${isRunning ? 'animate-spin' : ''}`} />
+            </button>
+          )}
+
           {onReRun && (
             <button
               type="button"
@@ -286,8 +301,9 @@ export function ExecutionPanel({
               disabled={isRunning || run?.status === 'running'}
               className="p-1 rounded-[6px] text-text-muted hover:text-text-primary hover:bg-[#222222] transition-colors disabled:opacity-40"
               title="Re-run workflow"
+              aria-label="Re-run workflow"
             >
-              <RotateCw className={`w-3.5 h-3.5 ${isRunning ? 'animate-spin' : ''}`} />
+              <Play className="w-3.5 h-3.5" />
             </button>
           )}
 
@@ -365,6 +381,16 @@ export function ExecutionPanel({
                     Click Run in the toolbar to execute this automation.
                   </p>
                 </div>
+                {onRefresh && (
+                  <button
+                    type="button"
+                    onClick={onRefresh}
+                    className="mt-2 px-3 py-1 text-xs rounded-[6px] bg-[#222222] hover:bg-[#2A2A2A] text-text-primary border border-[#333333] transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RotateCw className="w-3 h-3" />
+                    <span>Load Latest Logs</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
