@@ -37,6 +37,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const refreshUser = useCallback(async () => {
+    if (typeof window !== 'undefined') {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlToken = urlParams.get('auth_token');
+        if (urlToken) {
+          setAuthToken(urlToken);
+          setTokenState(urlToken);
+          const cleanUrl = new URL(window.location.href);
+          cleanUrl.searchParams.delete('auth_token');
+          window.history.replaceState({}, '', cleanUrl.toString());
+        }
+      } catch {}
+    }
+
     const currentToken = getAuthToken();
     if (!currentToken) {
       setUser(null);

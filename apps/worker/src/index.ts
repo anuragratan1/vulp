@@ -31,6 +31,7 @@ export interface Bindings {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_REDIRECT_URI?: string;
+  CANONICAL_API_URL?: string;
   WEBHOOK_BASE_URL?: string;
 }
 

@@ -515,6 +515,61 @@ authApp.post('/api/auth/google/verify', async (c) => {
   return c.json(result);
 });
 
+export function getCanonicalBackendUrl(c: any): string {
+  if (c.env?.CANONICAL_API_URL) {
+    return c.env.CANONICAL_API_URL.replace(/\/+$/, '');
+  }
+  const reqUrl = new URL(c.req.url);
+  if (reqUrl.hostname === 'localhost' || reqUrl.hostname === '127.0.0.1') {
+    return reqUrl.origin;
+  }
+  return 'https://vulp-studio.workflow-worker.workers.dev';
+}
+
+export function getGoogleSignInRedirectUri(c: any): string {
+  if (c.env?.GOOGLE_SIGNIN_REDIRECT_URI) {
+    return c.env.GOOGLE_SIGNIN_REDIRECT_URI.replace(/\/+$/, '');
+  }
+  const clientOrigin = c.req.query('origin') || c.req.header('origin') || '';
+  if (clientOrigin.includes('localhost') || clientOrigin.includes('127.0.0.1')) {
+    try {
+      return `${new URL(clientOrigin).origin}/api/auth/google/signin/callback`;
+    } catch {}
+  }
+  return 'https://vulp-psi.vercel.app/api/auth/google/signin/callback';
+}
+
+interface OAuthStatePayload {
+  nonce: string;
+  origin: string;
+  redirectUri: string;
+  ts: number;
+}
+
+export function encodeOAuthState(clientOrigin: string, redirectUri: string): string {
+  const payload: OAuthStatePayload = {
+    nonce: nanoid(24),
+    origin: clientOrigin || 'https://vulp-psi.vercel.app',
+    redirectUri,
+    ts: Date.now(),
+  };
+  return btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function decodeOAuthState(stateStr?: string): OAuthStatePayload | null {
+  if (!stateStr) return null;
+  try {
+    let base64 = stateStr.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) base64 += '=';
+    const json = atob(base64);
+    const parsed = JSON.parse(json);
+    if (!parsed || !parsed.nonce) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 // Google Sign-In Popup Initiation (Non-sensitive scopes only)
 authApp.get('/api/auth/google/signin', async (c) => {
   const clientId = c.env.GOOGLE_CLIENT_ID || '';
@@ -522,11 +577,9 @@ authApp.get('/api/auth/google/signin', async (c) => {
     return c.json({ error: 'Google OAuth not configured on server' }, 500);
   }
 
-  const baseOrigin = c.env.GOOGLE_REDIRECT_URI
-    ? new URL(c.env.GOOGLE_REDIRECT_URI).origin
-    : new URL(c.req.url).origin;
-  const redirectUri = `${baseOrigin}/api/auth/google/signin/callback`;
-  const state = nanoid(32);
+  const redirectUri = getGoogleSignInRedirectUri(c);
+  const clientOrigin = c.req.query('origin') || 'https://vulp-psi.vercel.app';
+  const state = encodeOAuthState(clientOrigin, redirectUri);
 
   // Scopes for User Sign-In ONLY: strictly non-sensitive
   const scopes = ['openid', 'email', 'profile'].join(' ');
@@ -555,8 +608,13 @@ authApp.get('/api/auth/google/signin', async (c) => {
 authApp.get('/api/auth/google/signin/callback', async (c) => {
   const code = c.req.query('code');
   const error = c.req.query('error');
+  const state = c.req.query('state');
   const clientId = c.env.GOOGLE_CLIENT_ID || '';
   const clientSecret = c.env.GOOGLE_CLIENT_SECRET || '';
+
+  const stateData = decodeOAuthState(state);
+  const returnOrigin = stateData?.origin || 'https://vulp-psi.vercel.app';
+  const redirectUri = stateData?.redirectUri || getGoogleSignInRedirectUri(c);
 
   if (error || !code) {
     return c.html(`
@@ -572,11 +630,6 @@ authApp.get('/api/auth/google/signin/callback', async (c) => {
       </html>
     `, 400);
   }
-
-  const baseOrigin = c.env.GOOGLE_REDIRECT_URI
-    ? new URL(c.env.GOOGLE_REDIRECT_URI).origin
-    : new URL(c.req.url).origin;
-  const redirectUri = `${baseOrigin}/api/auth/google/signin/callback`;
 
   // Exchange code for tokens
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {

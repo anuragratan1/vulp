@@ -23,7 +23,8 @@
   },
   "vars": {
     "NODE_ENV": "production",
-    "CORS_ORIGIN": "*"
+    "CORS_ORIGIN": "*",
+    "CANONICAL_API_URL": "https://vulp-studio.workflow-worker.workers.dev"
   }
 }
 

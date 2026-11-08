@@ -93,7 +93,7 @@ export function ConnectionModal({
   }, [isOpen, serviceId, service]);
 
   const handleCopyUri = () => {
-    const uri = googleConfig?.redirectUri || 'http://localhost:3000/api/auth/callback/google';
+    const uri = googleConfig?.redirectUri || 'https://vulp-psi.vercel.app/api/auth/callback/google';
     navigator.clipboard.writeText(uri);
     setCopiedUri(true);
     setTimeout(() => setCopiedUri(false), 2000);
@@ -489,7 +489,7 @@ export function ConnectionModal({
                       </button>
                     </div>
                     <div className="text-xs font-mono text-text-primary bg-[#111] px-2.5 py-1.5 rounded-[8px] border border-[#222] truncate select-all">
-                      {googleConfig?.redirectUri || 'http://localhost:3000/api/auth/callback/google'}
+                      {googleConfig?.redirectUri || 'https://vulp-psi.vercel.app/api/auth/callback/google'}
                     </div>
                   </div>
 

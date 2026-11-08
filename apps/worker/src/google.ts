@@ -8,6 +8,19 @@ import { WorkerCredentialVault } from './CredentialVault.js';
 
 export const googleApp = new Hono<{ Bindings: Bindings }>();
 
+export function getGoogleIntegrationRedirectUri(c: any): string {
+  if (c.env?.GOOGLE_REDIRECT_URI && !c.env.GOOGLE_REDIRECT_URI.includes('localhost')) {
+    return c.env.GOOGLE_REDIRECT_URI.replace(/\/+$/, '');
+  }
+  const clientOrigin = c.req.query('origin') || c.req.header('origin') || '';
+  if (clientOrigin.includes('localhost') || clientOrigin.includes('127.0.0.1')) {
+    try {
+      return `${new URL(clientOrigin).origin}/api/auth/callback/google`;
+    } catch {}
+  }
+  return 'https://vulp-psi.vercel.app/api/auth/callback/google';
+}
+
 // -----------------------------------------------------------------------------
 // Google OAuth Flow
 // -----------------------------------------------------------------------------
@@ -15,7 +28,7 @@ googleApp.get('/api/auth/google', async (c) => {
   const origin = c.req.query('origin') || new URL(c.req.url).origin;
   const workspaceId = c.req.query('workspaceId') || '';
   const clientId = c.env.GOOGLE_CLIENT_ID || '';
-  const redirectUri = `${new URL(c.req.url).origin}/api/auth/callback/google`;
+  const redirectUri = getGoogleIntegrationRedirectUri(c);
   const isConfigured = Boolean(clientId && c.env.GOOGLE_CLIENT_SECRET);
 
   const state = `${nanoid(24)}:${workspaceId}`;
@@ -81,7 +94,7 @@ googleApp.get('/api/auth/callback/google', async (c) => {
 
   const clientId = c.env.GOOGLE_CLIENT_ID || '';
   const clientSecret = c.env.GOOGLE_CLIENT_SECRET || '';
-  const redirectUri = `${new URL(c.req.url).origin}/api/auth/callback/google`;
+  const redirectUri = getGoogleIntegrationRedirectUri(c);
 
   try {
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
