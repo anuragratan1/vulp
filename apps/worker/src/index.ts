@@ -91,6 +91,7 @@ app.use('/api/*', async (c, next) => {
   const method = c.req.method.toUpperCase();
 
   const isPublic =
+    path === '/api/health' ||
     (path === '/api/node-types' && method === 'GET') ||
     (path.startsWith('/api/templates') && method === 'GET' && !path.endsWith('/instantiate')) ||
     path === '/api/auth/login' ||
@@ -139,9 +140,8 @@ app.use('/api/*', async (c, next) => {
 // -----------------------------------------------------------------------------
 // Health Check
 // -----------------------------------------------------------------------------
-app.get('/health', async (c) => {
+const healthCheckHandler = async (c: any) => {
   try {
-    const { db } = getServices(c.env);
     await c.env.DB.prepare('SELECT 1').first();
     return c.json({
       status: 'ok',
@@ -161,7 +161,9 @@ app.get('/health', async (c) => {
       503
     );
   }
-});
+};
+app.get('/health', healthCheckHandler);
+app.get('/api/health', healthCheckHandler);
 
 // -----------------------------------------------------------------------------
 // Node Types
