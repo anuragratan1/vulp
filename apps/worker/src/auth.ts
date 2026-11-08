@@ -409,7 +409,7 @@ export async function handleGoogleAuthUser(
     await db.insert(schema.users).values({
       id: userId,
       email,
-      passwordHash: null,
+      passwordHash: 'oauth:google:locked',
       name: googleProfile.name || email.split('@')[0],
       avatarUrl: googleProfile.picture || null,
       googleId: googleProfile.sub,
@@ -606,145 +606,163 @@ authApp.get('/api/auth/google/signin', async (c) => {
 
 // Google Sign-In Popup Callback
 authApp.get('/api/auth/google/signin/callback', async (c) => {
-  const code = c.req.query('code');
-  const error = c.req.query('error');
-  const state = c.req.query('state');
-  const clientId = c.env.GOOGLE_CLIENT_ID || '';
-  const clientSecret = c.env.GOOGLE_CLIENT_SECRET || '';
+  try {
+    const code = c.req.query('code');
+    const error = c.req.query('error');
+    const state = c.req.query('state');
+    const clientId = c.env.GOOGLE_CLIENT_ID || '';
+    const clientSecret = c.env.GOOGLE_CLIENT_SECRET || '';
 
-  const stateData = decodeOAuthState(state);
-  const returnOrigin = stateData?.origin || 'https://vulp-psi.vercel.app';
-  const redirectUri = stateData?.redirectUri || getGoogleSignInRedirectUri(c);
+    const stateData = decodeOAuthState(state);
+    const returnOrigin = stateData?.origin || 'https://vulp-psi.vercel.app';
+    const redirectUri = stateData?.redirectUri || getGoogleSignInRedirectUri(c);
 
-  if (error || !code) {
-    return c.html(`
-      <!DOCTYPE html>
-      <html>
-        <body style="background:#0F0F0F; color:#F87171; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
-          <div>
-            <h2 style="font-size:18px; margin-bottom:8px;">Sign-In Cancelled</h2>
-            <p style="color:#A3A3A3; font-size:13px; margin-bottom:16px;">${error || 'No authorization code received'}</p>
-            <script>setTimeout(() => window.close(), 2000);</script>
-          </div>
-        </body>
-      </html>
-    `, 400);
-  }
+    if (error || !code) {
+      return c.html(`
+        <!DOCTYPE html>
+        <html>
+          <body style="background:#0F0F0F; color:#F87171; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
+            <div>
+              <h2 style="font-size:18px; margin-bottom:8px;">Sign-In Cancelled</h2>
+              <p style="color:#A3A3A3; font-size:13px; margin-bottom:16px;">${error || 'No authorization code received'}</p>
+              <script>setTimeout(() => window.close(), 2000);</script>
+            </div>
+          </body>
+        </html>
+      `, 400);
+    }
 
-  // Exchange code for tokens
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id: clientId,
-      client_secret: clientSecret,
-      redirect_uri: redirectUri,
-      grant_type: 'authorization_code',
-    }),
-  });
-
-  if (!tokenRes.ok) {
-    return c.html(`
-      <!DOCTYPE html>
-      <html>
-        <body style="background:#0F0F0F; color:#F87171; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
-          <div>
-            <h2 style="font-size:18px; margin-bottom:8px;">Sign-In Failed</h2>
-            <p style="color:#A3A3A3; font-size:13px; margin-bottom:16px;">Failed to exchange authorization code with Google.</p>
-            <script>setTimeout(() => window.close(), 2500);</script>
-          </div>
-        </body>
-      </html>
-    `, 400);
-  }
-
-  const tokenData = (await tokenRes.json()) as any;
-  let profile: { sub: string; email: string; name: string; picture?: string } | null = null;
-
-  if (tokenData.id_token) {
-    profile = await verifyGoogleIdToken(tokenData.id_token, clientId);
-  }
-
-  if (!profile && tokenData.access_token) {
-    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    // Exchange code for tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }),
     });
-    if (userRes.ok) {
-      const u = (await userRes.json()) as any;
-      if (u.verified_email || u.email_verified) {
-        profile = {
-          sub: u.id,
-          email: u.email,
-          name: u.name || u.email?.split('@')[0] || 'Google User',
-          picture: u.picture,
-        };
+
+    if (!tokenRes.ok) {
+      const errBody = await tokenRes.text().catch(() => '');
+      console.error('Google token exchange failed:', tokenRes.status, errBody);
+      return c.html(`
+        <!DOCTYPE html>
+        <html>
+          <body style="background:#0F0F0F; color:#F87171; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
+            <div>
+              <h2 style="font-size:18px; margin-bottom:8px;">Sign-In Failed</h2>
+              <p style="color:#A3A3A3; font-size:13px; margin-bottom:16px;">Failed to exchange authorization code with Google.</p>
+              <script>setTimeout(() => window.close(), 2500);</script>
+            </div>
+          </body>
+        </html>
+      `, 400);
+    }
+
+    const tokenData = (await tokenRes.json()) as any;
+    let profile: { sub: string; email: string; name: string; picture?: string } | null = null;
+
+    if (tokenData.id_token) {
+      profile = await verifyGoogleIdToken(tokenData.id_token, clientId);
+    }
+
+    if (!profile && tokenData.access_token) {
+      const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      if (userRes.ok) {
+        const u = (await userRes.json()) as any;
+        if (u.verified_email || u.email_verified) {
+          profile = {
+            sub: u.id,
+            email: u.email,
+            name: u.name || u.email?.split('@')[0] || 'Google User',
+            picture: u.picture,
+          };
+        }
       }
     }
-  }
 
-  if (!profile) {
+    if (!profile) {
+      return c.html(`
+        <!DOCTYPE html>
+        <html>
+          <body style="background:#0F0F0F; color:#F87171; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
+            <div>
+              <h2 style="font-size:18px; margin-bottom:8px;">Verification Failed</h2>
+              <p style="color:#A3A3A3; font-size:13px; margin-bottom:16px;">Could not verify your identity with Google.</p>
+              <script>setTimeout(() => window.close(), 2500);</script>
+            </div>
+          </body>
+        </html>
+      `, 400);
+    }
+
+    const { drizzle } = await import('drizzle-orm/d1');
+    const db = drizzle(c.env.DB, { schema });
+    const authResult = await handleGoogleAuthUser(db, profile);
+
+    return c.html(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Signed in with Google</title></head>
+        <body style="background:#0F0F0F; color:#F5F5F5; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
+          <div>
+            <div style="width:48px; height:48px; margin:0 auto 16px; background:#1A2E1A; border:1px solid #22C55E; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#22C55E; font-size:24px;">✓</div>
+            <h2 style="margin:0 0 8px 0; font-size:18px;">Welcome to Vulp!</h2>
+            <p style="color:#A3A3A3; font-size:13px; margin:0 0 16px 0;">Signed in as <strong>${profile.email}</strong></p>
+            <p style="color:#737373; font-size:12px;">This window will close automatically...</p>
+          </div>
+          <script>
+            const payload = {
+              type: 'vulp_auth_success',
+              token: ${JSON.stringify(authResult.token)},
+              user: ${JSON.stringify(authResult.user)},
+              workspace: ${JSON.stringify(authResult.workspace)},
+              workspaces: ${JSON.stringify(authResult.workspaces)}
+            };
+            try {
+              localStorage.setItem('vulp_auth_token', ${JSON.stringify(authResult.token)});
+            } catch(e) {}
+            try {
+              const bc = new BroadcastChannel('vulp_auth');
+              bc.postMessage(payload);
+            } catch(e) {}
+            if (window.opener) {
+              try {
+                window.opener.postMessage(payload, '*');
+              } catch(e) {}
+              setTimeout(() => {
+                try { window.close(); } catch(e) {}
+              }, 800);
+            } else {
+              // Direct navigation fallback (e.g. mobile or blocked popup)
+              setTimeout(() => {
+                window.location.href = ${JSON.stringify(returnOrigin)};
+              }, 600);
+            }
+          </script>
+        </body>
+      </html>
+    `);
+  } catch (err: any) {
+    console.error('Fatal Google callback error:', err);
     return c.html(`
       <!DOCTYPE html>
       <html>
         <body style="background:#0F0F0F; color:#F87171; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
           <div>
-            <h2 style="font-size:18px; margin-bottom:8px;">Verification Failed</h2>
-            <p style="color:#A3A3A3; font-size:13px; margin-bottom:16px;">Could not verify your identity with Google.</p>
-            <script>setTimeout(() => window.close(), 2500);</script>
+            <h2 style="font-size:18px; margin-bottom:8px;">Sign-In Error</h2>
+            <p style="color:#A3A3A3; font-size:13px; margin-bottom:16px;">${err?.message || 'An unexpected error occurred during authentication.'}</p>
+            <button onclick="window.close()" style="background:#222; color:#fff; border:1px solid #333; padding:8px 16px; border-radius:8px; cursor:pointer;">Close Window</button>
           </div>
         </body>
       </html>
-    `, 400);
+    `, 500);
   }
-
-  const { drizzle } = await import('drizzle-orm/d1');
-  const db = drizzle(c.env.DB, { schema });
-  const authResult = await handleGoogleAuthUser(db, profile);
-
-  return c.html(`
-    <!DOCTYPE html>
-    <html>
-      <head><title>Signed in with Google</title></head>
-      <body style="background:#0F0F0F; color:#F5F5F5; font-family:system-ui,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; text-align:center;">
-        <div>
-          <div style="width:48px; height:48px; margin:0 auto 16px; background:#1A2E1A; border:1px solid #22C55E; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#22C55E; font-size:24px;">✓</div>
-          <h2 style="margin:0 0 8px 0; font-size:18px;">Welcome to Vulp!</h2>
-          <p style="color:#A3A3A3; font-size:13px; margin:0 0 16px 0;">Signed in as <strong>${profile.email}</strong></p>
-          <p style="color:#737373; font-size:12px;">This window will close automatically...</p>
-        </div>
-        <script>
-          const payload = {
-            type: 'vulp_auth_success',
-            token: ${JSON.stringify(authResult.token)},
-            user: ${JSON.stringify(authResult.user)},
-            workspace: ${JSON.stringify(authResult.workspace)},
-            workspaces: ${JSON.stringify(authResult.workspaces)}
-          };
-          try {
-            localStorage.setItem('vulp_auth_token', ${JSON.stringify(authResult.token)});
-          } catch(e) {}
-          try {
-            const bc = new BroadcastChannel('vulp_auth');
-            bc.postMessage(payload);
-          } catch(e) {}
-          if (window.opener) {
-            try {
-              window.opener.postMessage(payload, '*');
-            } catch(e) {}
-            setTimeout(() => {
-              try { window.close(); } catch(e) {}
-            }, 800);
-          } else {
-            // Direct navigation fallback (e.g. mobile or blocked popup)
-            setTimeout(() => {
-              window.location.href = ${JSON.stringify(returnOrigin)};
-            }, 600);
-          }
-        </script>
-      </body>
-    </html>
-  `);
 });
 
 // Logout
