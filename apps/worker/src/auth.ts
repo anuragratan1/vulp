@@ -722,13 +722,25 @@ authApp.get('/api/auth/google/signin/callback', async (c) => {
             workspaces: ${JSON.stringify(authResult.workspaces)}
           };
           try {
+            localStorage.setItem('vulp_auth_token', ${JSON.stringify(authResult.token)});
+          } catch(e) {}
+          try {
             const bc = new BroadcastChannel('vulp_auth');
             bc.postMessage(payload);
           } catch(e) {}
           if (window.opener) {
-            window.opener.postMessage(payload, '*');
+            try {
+              window.opener.postMessage(payload, '*');
+            } catch(e) {}
+            setTimeout(() => {
+              try { window.close(); } catch(e) {}
+            }, 800);
+          } else {
+            // Direct navigation fallback (e.g. mobile or blocked popup)
+            setTimeout(() => {
+              window.location.href = ${JSON.stringify(returnOrigin)};
+            }, 600);
           }
-          setTimeout(() => window.close(), 1000);
         </script>
       </body>
     </html>

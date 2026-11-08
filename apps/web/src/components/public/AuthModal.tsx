@@ -19,17 +19,21 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialTab?: 'signin' | 'signup' | 'forgot';
+  defaultTab?: 'signin' | 'signup' | 'forgot';
   onSuccess?: () => void;
 }
 
 export function AuthModal({
   isOpen,
   onClose,
-  initialTab = 'signin',
+  initialTab,
+  defaultTab,
   onSuccess,
 }: AuthModalProps) {
   const { login, signup, loginWithGoogleIdToken, isAuthenticated } = useAuth();
-  const [tab, setTab] = useState<'signin' | 'signup' | 'forgot' | 'reset'>(initialTab);
+  const [tab, setTab] = useState<'signin' | 'signup' | 'forgot' | 'reset'>(
+    defaultTab || initialTab || 'signin'
+  );
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
