@@ -174,6 +174,80 @@ app.get('/api/node-types', async (c) => {
 // -----------------------------------------------------------------------------
 // Workflows CRUD (Scoped strictly by active workspace)
 // -----------------------------------------------------------------------------
+function validateWorkflowForActivation(graph: WorkflowGraph, registry: any) {
+  // Validate basic graph consistency (strict: verifies required params & structural integrity)
+  GraphValidator.validate(graph, registry);
+
+  // Check that at least one trigger node exists
+  const triggerNodes = (graph.nodes || []).filter((n) => {
+    const typeDef = registry.get(n.type);
+    return typeDef?.category === 'trigger';
+  });
+
+  if (triggerNodes.length === 0) {
+    throw new Error('Cannot activate workflow: No trigger step found in graph.');
+  }
+
+  // Validate cron expressions and required credentials
+  for (const node of graph.nodes || []) {
+    if (node.type === 'schedule.trigger') {
+      const cronExpr = String(node.params?.cron || '0 * * * *');
+      const parts = cronExpr.trim().split(/\s+/);
+      if (parts.length < 5 || parts.length > 6) {
+        throw new Error(`Invalid cron expression '${cronExpr}' in step '${node.name || node.key}'.`);
+      }
+    }
+
+    if (node.type === 'telegram.sendMessage' && !node.credentialId && !node.params?.credentialId) {
+      throw new Error(
+        `Step '${node.name || node.key}' (Telegram) requires a configured Bot Token credential. Please select or add a Telegram credential in the step settings before activating.`
+      );
+    }
+    if (
+      node.type === 'slack.postMessage' &&
+      !node.credentialId &&
+      !node.params?.credentialId &&
+      !node.params?.webhookUrl
+    ) {
+      throw new Error(
+        `Step '${node.name || node.key}' (Slack) requires an Incoming Webhook credential or URL. Please select or add a Slack credential in the step settings before activating.`
+      );
+    }
+    if (node.type === 'github.createIssue' && !node.credentialId && !node.params?.credentialId) {
+      throw new Error(
+        `Step '${node.name || node.key}' (GitHub) requires a Personal Access Token credential. Please select or add a GitHub credential in the step settings before activating.`
+      );
+    }
+    const googleNodeTypes = [
+      'gmail.sendEmail',
+      'sheets.readRows',
+      'sheets.appendRow',
+      'sheets.updateRow',
+      'drive.uploadFile',
+      'drive.searchFiles',
+      'calendar.createEvent',
+    ];
+    if (googleNodeTypes.includes(node.type) && !node.credentialId && !node.params?.credentialId) {
+      throw new Error(
+        `Step '${node.name || node.key}' requires a connected Google account. Please connect or select your Google account in step settings before activating.`
+      );
+    }
+    if (node.type === 'google_forms.trigger' || node.type === 'forms.trigger') {
+      const credId = node.credentialId || node.params?.credentialId;
+      if (!credId) {
+        throw new Error(
+          `Step '${node.name || node.key}' (Google Forms) requires a connected Google account. Please connect or select your Google account in step settings before activating.`
+        );
+      }
+      if (!node.params?.formId) {
+        throw new Error(
+          `Step '${node.name || node.key}' (Google Forms) requires a selected Google Form. Please select or create a form in step settings before activating.`
+        );
+      }
+    }
+  }
+}
+
 app.get('/api/workflows', async (c) => {
   const ws = getActiveWorkspace(c);
   const { db } = getServices(c.env, ws.id);
@@ -190,9 +264,10 @@ app.post('/api/workflows', async (c) => {
   const ws = getActiveWorkspace(c);
   const { db, runManager } = getServices(c.env, ws.id);
   const body = await c.req.json().catch(() => ({}));
-  const id = nanoid();
+  const id = body.id || nanoid();
   const now = Date.now();
   const name = body.name?.trim() || 'Untitled Automation';
+  const active = Boolean(body.active);
 
   const initialGraph: WorkflowGraph = body.graph || {
     nodes: [
@@ -208,7 +283,11 @@ app.post('/api/workflows', async (c) => {
   };
 
   try {
-    GraphValidator.validate(initialGraph, runManager.getRegistry());
+    if (active) {
+      validateWorkflowForActivation(initialGraph, runManager.getRegistry());
+    } else {
+      GraphValidator.validate(initialGraph, runManager.getRegistry(), { allowDraft: true });
+    }
   } catch (valErr: any) {
     return c.json({ error: 'Invalid workflow graph', details: valErr.message }, 400);
   }
@@ -218,7 +297,7 @@ app.post('/api/workflows', async (c) => {
     workspaceId: ws.id,
     name,
     graph: initialGraph,
-    active: false,
+    active,
     createdAt: now,
     updatedAt: now,
   });
@@ -258,11 +337,24 @@ app.put('/api/workflows/:id', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const name = body.name !== undefined ? body.name.trim() : existing.name;
   const graph = body.graph !== undefined ? body.graph : existing.graph;
-  const active = body.active !== undefined ? Boolean(body.active) : existing.active;
+  let active = body.active !== undefined ? Boolean(body.active) : existing.active;
 
   if (body.graph) {
     try {
-      GraphValidator.validate(graph as WorkflowGraph, runManager.getRegistry());
+      if (active) {
+        if (body.active === true) {
+          validateWorkflowForActivation(graph as WorkflowGraph, runManager.getRegistry());
+        } else {
+          try {
+            validateWorkflowForActivation(graph as WorkflowGraph, runManager.getRegistry());
+          } catch {
+            active = false;
+            GraphValidator.validate(graph as WorkflowGraph, runManager.getRegistry(), { allowDraft: true });
+          }
+        }
+      } else {
+        GraphValidator.validate(graph as WorkflowGraph, runManager.getRegistry(), { allowDraft: true });
+      }
     } catch (valErr: any) {
       return c.json({ error: 'Invalid workflow graph', details: valErr.message }, 400);
     }
@@ -347,7 +439,7 @@ async function syncWorkflowWebhooks(db: DrizzleD1Database<typeof schema>, workfl
 
 app.post('/api/workflows/:id/activate', async (c) => {
   const ws = getActiveWorkspace(c);
-  const { db } = getServices(c.env, ws.id);
+  const { db, runManager } = getServices(c.env, ws.id);
   const id = c.req.param('id');
   const existing = await db
     .select()
@@ -355,6 +447,13 @@ app.post('/api/workflows/:id/activate', async (c) => {
     .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
     .get();
   if (!existing) return c.json({ error: 'Workflow not found' }, 404);
+
+  const graph = (typeof existing.graph === 'string' ? JSON.parse(existing.graph) : existing.graph) as WorkflowGraph;
+  try {
+    validateWorkflowForActivation(graph, runManager.getRegistry());
+  } catch (valErr: any) {
+    return c.json({ error: 'Cannot activate workflow', details: valErr.message }, 400);
+  }
 
   const now = Date.now();
   await db
