@@ -105,7 +105,39 @@ docker compose ps
 
 The application will be live at `http://localhost:4000`, serving both the API and the pre-built React frontend with automatic health check monitoring.
 
-### Option B: Bare-Metal / Node.js Process
+### Option B: Cloudflare Workers + D1 (Serverless Edge)
+
+VULP can run completely serverless on Cloudflare's free edge tier:
+
+- **Backend:** `apps/worker` deployed to Cloudflare Workers with Hono.
+- **Database:** Cloudflare D1 distributed SQLite database (`vulp-db`).
+- **Cron Triggers:** Automatic background evaluation (`* * * * *`).
+
+```bash
+# 1. Login to Cloudflare Wrangler
+npx wrangler login
+
+# 2. Run D1 migrations
+npx wrangler d1 execute vulp-db --remote --file=d1-migrations/0000_init.sql
+
+# 3. Deploy to Cloudflare Workers
+cd apps/worker
+npx wrangler deploy
+```
+
+### Option C: Vercel Frontend Deployment
+
+Deploy the Vite React studio to Vercel in 1 click:
+
+1. Import your GitHub repository into Vercel.
+2. Vercel automatically detects `vercel.json` (`buildCommand: npm run build --workspace=@workflow/web`, `outputDirectory: apps/web/dist`).
+3. Add the Environment Variable:
+   - `VITE_API_BASE`: `https://vulp-studio.workflow-worker.workers.dev` (or your custom backend domain).
+4. Click **Deploy**.
+
+---
+
+### Option D: Bare-Metal / Node.js Process
 
 ```bash
 # 1. Build all packages

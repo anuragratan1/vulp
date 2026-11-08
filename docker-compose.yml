@@ -31,3 +31,4 @@ services:
 volumes:
   vulp-data:
     name: vulp-platform-data
+

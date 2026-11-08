@@ -14,4 +14,11 @@ scratch/
 test
 *.log
 .env
+.env.*
+!.env.example
+.wrangler/
+.vercel/
+*.key
+*.pem
+.dev.vars
 

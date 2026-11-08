@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vulp-studio",
+  "account_id": "1b99da20fdbb2f1ce7675fade7058d50",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vulp-db",
+      "database_id": "8e08b88f-d885-4b44-87c5-44bedf4786bd"
+    }
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "vars": {
+    "NODE_ENV": "production",
+    "CORS_ORIGIN": "*"
+  }
+}
+

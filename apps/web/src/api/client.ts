@@ -113,7 +113,7 @@ export interface NodeRunRecord {
   finishedAt: number | null;
 }
 
-const API_BASE = ''; // uses relative path (vite proxy in dev or same host in prod)
+const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/+$/, '');
 
 interface CacheStore {
   workflows: WorkflowRecord[] | null;
