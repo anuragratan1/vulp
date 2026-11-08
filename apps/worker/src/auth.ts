@@ -538,7 +538,14 @@ authApp.get('/api/auth/google/signin', async (c) => {
     state,
   });
 
-  return c.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+
+  const accept = c.req.header('accept') || '';
+  if (accept.includes('application/json')) {
+    return c.json({ url, redirectUri, clientId });
+  }
+
+  return c.redirect(url);
 });
 
 // Google Sign-In Popup Callback

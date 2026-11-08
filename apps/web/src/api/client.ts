@@ -292,6 +292,18 @@ export const api = {
     return data;
   },
 
+  async getGoogleSignInAuthUrl(origin?: string): Promise<{ url: string; redirectUri: string; clientId: string }> {
+    const query = origin ? `?origin=${encodeURIComponent(origin)}` : '';
+    const res = await request(`/api/auth/google/signin${query}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || err.error || 'Failed to initiate Google sign in');
+    }
+    return res.json();
+  },
+
   getGoogleSignInUrl(): string {
     const url = new URL(`${API_BASE}/api/auth/google/signin`, window.location.href);
     return url.toString();

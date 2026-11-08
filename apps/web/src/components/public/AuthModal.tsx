@@ -98,16 +98,28 @@ export function AuthModal({
     }
   }, [isOpen, tab, loginWithGoogleIdToken, onSuccess, onClose]);
 
-  const handleGoogleSignIn = () => {
+  const handleGoogleSignIn = async () => {
     setError(null);
-    const authUrl = api.getGoogleSignInUrl();
-    const popup = window.open(
-      authUrl,
-      'vulp_google_signin',
-      'width=520,height=640,status=no,resizable=yes'
-    );
-    if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-      window.location.href = authUrl;
+    setLoading(true);
+    try {
+      const data = await api.getGoogleSignInAuthUrl(window.location.origin);
+      const width = 520;
+      const height = 640;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+
+      const popup = window.open(
+        data.url,
+        'vulp_google_signin',
+        `width=${width},height=${height},left=${left},top=${top},status=no,resizable=yes`
+      );
+      if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+        window.location.href = data.url;
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to start Google sign-in');
+    } finally {
+      setLoading(false);
     }
   };
 
