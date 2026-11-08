@@ -13,11 +13,12 @@ export const googleApp = new Hono<{ Bindings: Bindings }>();
 // -----------------------------------------------------------------------------
 googleApp.get('/api/auth/google', async (c) => {
   const origin = c.req.query('origin') || new URL(c.req.url).origin;
+  const workspaceId = c.req.query('workspaceId') || '';
   const clientId = c.env.GOOGLE_CLIENT_ID || '';
   const redirectUri = `${new URL(c.req.url).origin}/api/auth/callback/google`;
   const isConfigured = Boolean(clientId && c.env.GOOGLE_CLIENT_SECRET);
 
-  const state = nanoid(32);
+  const state = `${nanoid(24)}:${workspaceId}`;
   const scopes = [
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile',
@@ -125,6 +126,9 @@ googleApp.get('/api/auth/callback/google', async (c) => {
       clientSecret,
     };
 
+    const rawState = c.req.query('state') || '';
+    const targetWorkspaceId = rawState.split(':')[1] || 'ws_init_default';
+
     const { drizzle } = await import('drizzle-orm/d1');
     const { getMasterKeyBuffer } = await import('./crypto.js');
     const db = drizzle(c.env.DB, { schema });
@@ -133,6 +137,7 @@ googleApp.get('/api/auth/callback/google', async (c) => {
 
     await db.insert(schema.credentials).values({
       id,
+      workspaceId: targetWorkspaceId,
       name,
       type: 'google',
       dataEnc,
@@ -194,7 +199,7 @@ googleApp.get('/api/auth/callback/google', async (c) => {
 // Direct token saving
 googleApp.post('/api/auth/direct-token', async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const { type, accessToken, refreshToken, email, name: rawName } = body || {};
+  const { type, accessToken, refreshToken, email, name: rawName, workspaceId } = body || {};
   if (!accessToken) {
     return c.json({ error: "Field 'accessToken' is required" }, 400);
   }
@@ -202,6 +207,7 @@ googleApp.post('/api/auth/direct-token', async (c) => {
   const providerType = type || 'google';
   const userEmail = email || 'user@example.com';
   const name = rawName || `${providerType === 'google' ? 'Google' : providerType} (${userEmail})`;
+  const targetWorkspaceId = workspaceId || 'ws_init_default';
   const id = nanoid();
   const now = Date.now();
 
@@ -218,6 +224,7 @@ googleApp.post('/api/auth/direct-token', async (c) => {
 
   await db.insert(schema.credentials).values({
     id,
+    workspaceId: targetWorkspaceId,
     name,
     type: providerType,
     dataEnc,

@@ -7,10 +7,11 @@ import { decrypt, encrypt, getMasterKeyBuffer } from './crypto.js';
 export class WorkerCredentialVault implements ICredentialStore {
   constructor(
     private readonly db: DrizzleD1Database<typeof schema>,
-    private readonly masterKey: Buffer
+    private readonly masterKey: Buffer,
+    private readonly defaultWorkspaceId?: string
   ) {}
 
-  public async get(id: string): Promise<Record<string, string>> {
+  public async get(id: string, workspaceId?: string): Promise<Record<string, string>> {
     const cred = await this.db
       .select()
       .from(schema.credentials)
@@ -21,12 +22,21 @@ export class WorkerCredentialVault implements ICredentialStore {
       throw new Error(`Credential '${id}' was not found.`);
     }
 
+    const targetWs = workspaceId || this.defaultWorkspaceId;
+    if (targetWs && cred.workspaceId && cred.workspaceId !== targetWs) {
+      throw new Error(`Access denied: Credential '${id}' does not belong to the active workspace.`);
+    }
+
     try {
       const decrypted = decrypt(cred.dataEnc, this.masterKey);
       return JSON.parse(decrypted);
     } catch (err: any) {
       throw new Error(`Failed to decrypt credential '${id}': ${err?.message}`);
     }
+  }
+
+  public forWorkspace(workspaceId: string): WorkerCredentialVault {
+    return new WorkerCredentialVault(this.db, this.masterKey, workspaceId);
   }
 
   public encryptSecrets(secrets: Record<string, string>): string {

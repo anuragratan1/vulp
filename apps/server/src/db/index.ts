@@ -31,8 +31,54 @@ export function initDatabase(dbPath: string = getDbPath()) {
 
   // Ensure tables exist
   sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      name TEXT NOT NULL,
+      avatar_url TEXT,
+      email_verified INTEGER NOT NULL DEFAULT 0,
+      onboarding_completed INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_members (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'owner',
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS auth_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS workflows (
       id TEXT PRIMARY KEY,
+      workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       graph TEXT NOT NULL,
       active INTEGER NOT NULL DEFAULT 0,
@@ -42,6 +88,7 @@ export function initDatabase(dbPath: string = getDbPath()) {
 
     CREATE TABLE IF NOT EXISTS credentials (
       id TEXT PRIMARY KEY,
+      workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       type TEXT NOT NULL,
       data_enc TEXT NOT NULL,
@@ -56,6 +103,7 @@ export function initDatabase(dbPath: string = getDbPath()) {
 
     CREATE TABLE IF NOT EXISTS runs (
       id TEXT PRIMARY KEY,
+      workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
       workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
       workflow_name TEXT NOT NULL,
       trigger_type TEXT NOT NULL,
@@ -85,6 +133,11 @@ export function initDatabase(dbPath: string = getDbPath()) {
       finished_at INTEGER
     );
   `);
+
+  // Migrate columns for existing databases if needed
+  try { sqlite.exec(`ALTER TABLE workflows ADD COLUMN workspace_id TEXT;`); } catch {}
+  try { sqlite.exec(`ALTER TABLE credentials ADD COLUMN workspace_id TEXT;`); } catch {}
+  try { sqlite.exec(`ALTER TABLE runs ADD COLUMN workspace_id TEXT;`); } catch {}
 
   return { sqlite, db };
 }

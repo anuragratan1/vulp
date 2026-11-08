@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { drizzle, DrizzleD1Database } from 'drizzle-orm/d1';
-import { eq, desc, asc } from 'drizzle-orm';
+import { eq, and, desc, asc } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { Cron } from 'croner';
 import {
@@ -19,6 +19,7 @@ import { WorkerCredentialVault } from './CredentialVault.js';
 import { WorkerRunManager } from './RunManager.js';
 import { WORKFLOW_TEMPLATES } from './templates.js';
 import { googleApp } from './google.js';
+import { authApp, verifySession, checkRateLimit } from './auth.js';
 
 export interface Bindings {
   DB: D1Database;
@@ -33,7 +34,13 @@ export interface Bindings {
   WEBHOOK_BASE_URL?: string;
 }
 
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<{
+  Bindings: Bindings;
+  Variables: {
+    user?: schema.User;
+    workspace?: schema.Workspace;
+  };
+}>();
 
 // Enable CORS across all API and webhook routes (supporting credentials with Vercel frontend)
 app.use('*', async (c, next) => {
@@ -46,34 +53,88 @@ app.use('*', async (c, next) => {
       return allowed.includes(requestOrigin) ? requestOrigin : allowed[0];
     },
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Workspace-Id'],
     credentials: true,
   })(c, next);
 });
 
-// SPA & Static Assets fallback
-app.notFound(async (c) => {
-  const url = new URL(c.req.url);
-  if (url.pathname.startsWith('/api') || url.pathname.startsWith('/hook')) {
-    return c.json({ error: 'Endpoint not found', path: url.pathname }, 404);
-  }
-  if (c.env.ASSETS) {
-    return c.env.ASSETS.fetch(c.req.raw);
-  }
-  return c.text('Not Found', 404);
-});
-
 // Helper to get Drizzle DB and Vault
-function getServices(env: Bindings) {
+function getServices(env: Bindings, workspaceId?: string) {
   const db = drizzle(env.DB, { schema });
   const masterKey = getMasterKeyBuffer(env.WF_MASTER_KEY);
-  const vault = new WorkerCredentialVault(db, masterKey);
+  const vault = new WorkerCredentialVault(db, masterKey, workspaceId);
   const runManager = new WorkerRunManager(db, vault);
   return { db, vault, runManager, masterKey };
 }
 
-// Mount Google integration & OAuth sub-app
+function getActiveWorkspace(c: any): schema.Workspace {
+  const ws = c.get('workspace');
+  if (ws) return ws;
+  return {
+    id: 'ws_init_default',
+    name: 'Primary Workspace',
+    ownerId: 'usr_init_admin',
+    createdAt: 0,
+    updatedAt: 0,
+  };
+}
+
+// Mount Authentication & OAuth sub-apps
+app.route('/', authApp);
 app.route('/', googleApp);
+
+// -----------------------------------------------------------------------------
+// Rate Limiting & Multi-Tenant Context Middleware
+// -----------------------------------------------------------------------------
+app.use('/api/*', async (c, next) => {
+  const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'anon';
+  if (!checkRateLimit(clientIp, 120, 60000)) {
+    return c.json({ error: 'Too many requests', message: 'Rate limit exceeded. Please wait a moment.' }, 429);
+  }
+
+  const path = new URL(c.req.url).pathname;
+  const isPublic =
+    path === '/api/node-types' ||
+    path.startsWith('/api/templates') ||
+    path.startsWith('/api/auth/login') ||
+    path.startsWith('/api/auth/signup') ||
+    path.startsWith('/api/auth/forgot-password') ||
+    path.startsWith('/api/auth/reset-password') ||
+    path.startsWith('/api/auth/google') ||
+    path.startsWith('/api/auth/callback/google');
+
+  if (isPublic) {
+    return next();
+  }
+
+  const authHeader = c.req.header('authorization') || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  const { db } = getServices(c.env);
+
+  if (token) {
+    const sessionData = await verifySession(db, token);
+    if (sessionData) {
+      c.set('user', sessionData.user);
+      c.set('workspace', sessionData.workspace);
+      return next();
+    }
+    return c.json({ error: 'Unauthorized', message: 'Invalid or expired session. Please log in again.' }, 401);
+  }
+
+  // Fallback for initial workspace migration safety
+  const defaultWs = await db
+    .select()
+    .from(schema.workspaces)
+    .where(eq(schema.workspaces.id, 'ws_init_default'))
+    .get();
+
+  if (defaultWs) {
+    c.set('workspace', defaultWs);
+    return next();
+  }
+
+  return c.json({ error: 'Unauthorized', message: 'Authentication required' }, 401);
+});
 
 // -----------------------------------------------------------------------------
 // Health Check
@@ -88,6 +149,7 @@ app.get('/health', async (c) => {
       database: 'connected',
       version: '0.1.0',
       runtime: 'Cloudflare Workers (Edge)',
+      multiTenant: true,
     });
   } catch (err: any) {
     return c.json(
@@ -110,16 +172,23 @@ app.get('/api/node-types', async (c) => {
 });
 
 // -----------------------------------------------------------------------------
-// Workflows CRUD
+// Workflows CRUD (Scoped strictly by active workspace)
 // -----------------------------------------------------------------------------
 app.get('/api/workflows', async (c) => {
-  const { db } = getServices(c.env);
-  const list = await db.select().from(schema.workflows).orderBy(desc(schema.workflows.updatedAt)).all();
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
+  const list = await db
+    .select()
+    .from(schema.workflows)
+    .where(eq(schema.workflows.workspaceId, ws.id))
+    .orderBy(desc(schema.workflows.updatedAt))
+    .all();
   return c.json({ workflows: list });
 });
 
 app.post('/api/workflows', async (c) => {
-  const { db, runManager } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db, runManager } = getServices(c.env, ws.id);
   const body = await c.req.json().catch(() => ({}));
   const id = nanoid();
   const now = Date.now();
@@ -146,6 +215,7 @@ app.post('/api/workflows', async (c) => {
 
   await db.insert(schema.workflows).values({
     id,
+    workspaceId: ws.id,
     name,
     graph: initialGraph,
     active: false,
@@ -153,22 +223,36 @@ app.post('/api/workflows', async (c) => {
     updatedAt: now,
   });
 
-  const created = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get();
+  const created = await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get();
   return c.json({ workflow: created }, 201);
 });
 
 app.get('/api/workflows/:id', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const id = c.req.param('id');
-  const wf = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get();
+  const wf = await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get();
   if (!wf) return c.json({ error: 'Workflow not found' }, 404);
   return c.json({ workflow: wf });
 });
 
 app.put('/api/workflows/:id', async (c) => {
-  const { db, runManager } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db, runManager } = getServices(c.env, ws.id);
   const id = c.req.param('id');
-  const existing = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get();
+  const existing = await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get();
   if (!existing) return c.json({ error: 'Workflow not found' }, 404);
 
   const body = await c.req.json().catch(() => ({}));
@@ -192,7 +276,7 @@ app.put('/api/workflows/:id', async (c) => {
       active,
       updatedAt: Date.now(),
     })
-    .where(eq(schema.workflows.id, id));
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)));
 
   // Sync webhooks table for any webhook.trigger nodes
   const g = (typeof graph === 'string' ? JSON.parse(graph) : graph) as WorkflowGraph;
@@ -206,14 +290,28 @@ app.put('/api/workflows/:id', async (c) => {
     }
   }
 
-  const updated = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get();
+  const updated = await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get();
   return c.json({ workflow: updated });
 });
 
 app.delete('/api/workflows/:id', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const id = c.req.param('id');
-  await db.delete(schema.workflows).where(eq(schema.workflows.id, id));
+  const existing = await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get();
+  if (!existing) return c.json({ error: 'Workflow not found' }, 404);
+
+  await db
+    .delete(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)));
   return c.json({ success: true, message: `Workflow '${id}' deleted` });
 });
 
@@ -248,42 +346,68 @@ async function syncWorkflowWebhooks(db: DrizzleD1Database<typeof schema>, workfl
 }
 
 app.post('/api/workflows/:id/activate', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const id = c.req.param('id');
-  const existing = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get();
+  const existing = await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get();
   if (!existing) return c.json({ error: 'Workflow not found' }, 404);
 
   const now = Date.now();
   await db
     .update(schema.workflows)
     .set({ active: true, updatedAt: now })
-    .where(eq(schema.workflows.id, id));
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)));
 
-  const updated = (await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get())!;
+  const updated = (await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get())!;
   const webhooks = await syncWorkflowWebhooks(db, updated);
 
   return c.json({ workflow: updated, webhooks, active: true });
 });
 
 app.post('/api/workflows/:id/deactivate', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const id = c.req.param('id');
-  const existing = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get();
+  const existing = await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get();
   if (!existing) return c.json({ error: 'Workflow not found' }, 404);
 
   const now = Date.now();
   await db
     .update(schema.workflows)
     .set({ active: false, updatedAt: now })
-    .where(eq(schema.workflows.id, id));
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)));
 
-  const updated = (await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get())!;
+  const updated = (await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get())!;
   return c.json({ workflow: updated, active: false });
 });
 
 app.get('/api/workflows/:id/webhooks', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const id = c.req.param('id');
+  const workflow = await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get();
+  if (!workflow) return c.json({ error: 'Workflow not found' }, 404);
+
   const list = await db
     .select()
     .from(schema.webhooks)
@@ -293,10 +417,15 @@ app.get('/api/workflows/:id/webhooks', async (c) => {
 });
 
 app.get('/api/workflows/:id/webhooks/:nodeKey/sample', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const id = c.req.param('id');
   const nodeKey = c.req.param('nodeKey');
-  const workflow = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get();
+  const workflow = await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get();
   if (!workflow) return c.json({ error: 'Workflow not found' }, 404);
 
   const graph = (typeof workflow.graph === 'string' ? JSON.parse(workflow.graph) : workflow.graph) as WorkflowGraph;
@@ -308,13 +437,18 @@ app.get('/api/workflows/:id/webhooks/:nodeKey/sample', async (c) => {
 });
 
 app.put('/api/workflows/:id/webhooks/:nodeKey/sample', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const id = c.req.param('id');
   const nodeKey = c.req.param('nodeKey');
   const body = await c.req.json().catch(() => ({}));
   const samplePayload = body.samplePayload ?? {};
 
-  const workflow = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get();
+  const workflow = await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get();
   if (!workflow) return c.json({ error: 'Workflow not found' }, 404);
 
   const graph = (typeof workflow.graph === 'string' ? JSON.parse(workflow.graph) : workflow.graph) as WorkflowGraph;
@@ -338,18 +472,23 @@ app.put('/api/workflows/:id/webhooks/:nodeKey/sample', async (c) => {
       graph: updatedGraph,
       updatedAt: Date.now(),
     })
-    .where(eq(schema.workflows.id, id));
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)));
 
   return c.json({ success: true, nodeKey, samplePayload });
 });
 
 // -----------------------------------------------------------------------------
-// Execution & Runs
+// Execution & Runs (Strict workspace isolation)
 // -----------------------------------------------------------------------------
 app.post('/api/workflows/:id/run', async (c) => {
-  const { db, runManager } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db, runManager } = getServices(c.env, ws.id);
   const id = c.req.param('id');
-  const workflow = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get();
+  const workflow = await db
+    .select()
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, id), eq(schema.workflows.workspaceId, ws.id)))
+    .get();
   if (!workflow) return c.json({ error: 'Workflow not found' }, 404);
 
   const body = await c.req.json().catch(() => ({}));
@@ -383,15 +522,27 @@ app.post('/api/workflows/:id/run', async (c) => {
 });
 
 app.get('/api/runs', async (c) => {
-  const { db } = getServices(c.env);
-  const list = await db.select().from(schema.runs).orderBy(desc(schema.runs.queuedAt)).limit(50).all();
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
+  const list = await db
+    .select()
+    .from(schema.runs)
+    .where(eq(schema.runs.workspaceId, ws.id))
+    .orderBy(desc(schema.runs.queuedAt))
+    .limit(50)
+    .all();
   return c.json({ runs: list });
 });
 
 app.get('/api/runs/:runId', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const runId = c.req.param('runId');
-  const run = await db.select().from(schema.runs).where(eq(schema.runs.id, runId)).get();
+  const run = await db
+    .select()
+    .from(schema.runs)
+    .where(and(eq(schema.runs.id, runId), eq(schema.runs.workspaceId, ws.id)))
+    .get();
   if (!run) return c.json({ error: 'Run not found' }, 404);
 
   const nodeRuns = await db
@@ -405,8 +556,16 @@ app.get('/api/runs/:runId', async (c) => {
 });
 
 app.post('/api/runs/:runId/cancel', async (c) => {
-  const { runManager } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db, runManager } = getServices(c.env, ws.id);
   const runId = c.req.param('runId');
+  const run = await db
+    .select()
+    .from(schema.runs)
+    .where(and(eq(schema.runs.id, runId), eq(schema.runs.workspaceId, ws.id)))
+    .get();
+  if (!run) return c.json({ error: 'Run not found' }, 404);
+
   const success = await runManager.cancelRun(runId);
   if (!success) {
     return c.json(
@@ -419,11 +578,17 @@ app.post('/api/runs/:runId/cancel', async (c) => {
 
 // SSE Events stream
 app.get('/api/runs/:runId/events', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const runId = c.req.param('runId');
 
-  // Query snapshot immediately
-  const run = await db.select().from(schema.runs).where(eq(schema.runs.id, runId)).get();
+  const run = await db
+    .select()
+    .from(schema.runs)
+    .where(and(eq(schema.runs.id, runId), eq(schema.runs.workspaceId, ws.id)))
+    .get();
+  if (!run) return c.json({ error: 'Run not found' }, 404);
+
   const nodeRuns = await db
     .select()
     .from(schema.nodeRuns)
@@ -454,10 +619,11 @@ app.get('/api/runs/:runId/events', async (c) => {
 });
 
 // -----------------------------------------------------------------------------
-// Credentials CRUD
+// Credentials CRUD (Workspace scoped)
 // -----------------------------------------------------------------------------
 app.get('/api/credentials', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const list = await db
     .select({
       id: schema.credentials.id,
@@ -466,6 +632,7 @@ app.get('/api/credentials', async (c) => {
       createdAt: schema.credentials.createdAt,
     })
     .from(schema.credentials)
+    .where(eq(schema.credentials.workspaceId, ws.id))
     .orderBy(desc(schema.credentials.createdAt))
     .all();
 
@@ -473,7 +640,8 @@ app.get('/api/credentials', async (c) => {
 });
 
 app.post('/api/credentials', async (c) => {
-  const { db, vault } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db, vault } = getServices(c.env, ws.id);
   const body = await c.req.json().catch(() => ({}));
   const name = body.name?.trim();
   const type = body.type?.trim() || 'generic';
@@ -488,6 +656,7 @@ app.post('/api/credentials', async (c) => {
 
   await db.insert(schema.credentials).values({
     id,
+    workspaceId: ws.id,
     name,
     type,
     dataEnc,
@@ -498,9 +667,19 @@ app.post('/api/credentials', async (c) => {
 });
 
 app.delete('/api/credentials/:id', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const id = c.req.param('id');
-  await db.delete(schema.credentials).where(eq(schema.credentials.id, id));
+  const existing = await db
+    .select()
+    .from(schema.credentials)
+    .where(and(eq(schema.credentials.id, id), eq(schema.credentials.workspaceId, ws.id)))
+    .get();
+  if (!existing) return c.json({ error: 'Credential not found' }, 404);
+
+  await db
+    .delete(schema.credentials)
+    .where(and(eq(schema.credentials.id, id), eq(schema.credentials.workspaceId, ws.id)));
   return c.json({ success: true, message: `Credential '${id}' deleted` });
 });
 
@@ -508,9 +687,18 @@ app.delete('/api/credentials/:id', async (c) => {
 // Connections View
 // -----------------------------------------------------------------------------
 app.get('/api/connections', async (c) => {
-  const { db, vault } = getServices(c.env);
-  const credList = await db.select().from(schema.credentials).all();
-  const allWorkflows = await db.select().from(schema.workflows).all();
+  const ws = getActiveWorkspace(c);
+  const { db, vault } = getServices(c.env, ws.id);
+  const credList = await db
+    .select()
+    .from(schema.credentials)
+    .where(eq(schema.credentials.workspaceId, ws.id))
+    .all();
+  const allWorkflows = await db
+    .select()
+    .from(schema.workflows)
+    .where(eq(schema.workflows.workspaceId, ws.id))
+    .all();
 
   const credUsageMap = new Map<string, Array<{ id: string; name: string }>>();
   for (const wf of allWorkflows) {
@@ -561,10 +749,10 @@ app.get('/api/connections', async (c) => {
 });
 
 // -----------------------------------------------------------------------------
-// Webhooks Listener
+// Webhooks Listener (Public trigger, executes in workflow's workspace)
 // -----------------------------------------------------------------------------
 app.all('/hook/:token', async (c) => {
-  const { db, runManager } = getServices(c.env);
+  const { db } = getServices(c.env);
   const token = c.req.param('token');
   const webhookRecord = await db.select().from(schema.webhooks).where(eq(schema.webhooks.token, token)).get();
 
@@ -581,10 +769,6 @@ app.all('/hook/:token', async (c) => {
   if (!workflow) {
     return c.json({ error: 'Associated workflow not found' }, 404);
   }
-
-  const graph = (typeof workflow.graph === 'string'
-    ? JSON.parse(workflow.graph)
-    : workflow.graph) as WorkflowGraph;
 
   const bodyData = await c.req.json().catch(() => ({}));
   const triggerPayload = {
@@ -605,6 +789,7 @@ app.all('/hook/:token', async (c) => {
     );
   }
 
+  const { runManager } = getServices(c.env, workflow.workspaceId || undefined);
   const { runId, executionPromise } = await runManager.startRun(workflow, {
     triggerKey: webhookRecord.nodeKey,
     triggerPayload,
@@ -627,7 +812,6 @@ app.all('/hook/:token', async (c) => {
 // Integrations Metadata & Proxies
 // -----------------------------------------------------------------------------
 app.get('/api/integrations', async (c) => {
-  // Return standard catalog
   return c.json({
     integrations: [
       {
@@ -686,18 +870,31 @@ app.get('/api/integrations', async (c) => {
 
 // Telegram direct test execution
 app.post('/api/integrations/telegram/test', async (c) => {
-  const { vault } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { vault } = getServices(c.env, ws.id);
   const body = await c.req.json().catch(() => ({}));
-  const { credentialId, chatId, text } = body;
+  const { credentialId, botToken: directBotToken, chatId, text } = body;
 
-  if (!credentialId || !chatId || !text) {
-    return c.json({ success: false, error: 'credentialId, chatId, and text are required' }, 400);
+  if (!chatId || !text) {
+    return c.json({ success: false, error: 'chatId and text are required' }, 400);
+  }
+
+  let token = directBotToken;
+  if (!token && credentialId) {
+    try {
+      const creds = await vault.get(credentialId, ws.id);
+      token = creds.botToken || creds.apiKey || creds.token;
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 400);
+    }
+  }
+
+  if (!token) {
+    return c.json({ success: false, error: 'Telegram Bot Token is required' }, 400);
   }
 
   try {
-    const creds = await vault.get(credentialId);
-    const botToken = creds.botToken || creds.apiKey;
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
@@ -705,6 +902,43 @@ app.post('/api/integrations/telegram/test', async (c) => {
     const data: any = await res.json();
     if (!data.ok) throw new Error(data.description || 'Telegram API call failed');
     return c.json({ success: true, result: data.result });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 400);
+  }
+});
+
+// Slack direct test execution
+app.post('/api/integrations/slack/test', async (c) => {
+  const ws = getActiveWorkspace(c);
+  const { vault } = getServices(c.env, ws.id);
+  const body = await c.req.json().catch(() => ({}));
+  const { credentialId, webhookUrl, text } = body;
+
+  let url = webhookUrl;
+  if (!url && credentialId) {
+    try {
+      const creds = await vault.get(credentialId, ws.id);
+      url = creds.webhookUrl || creds.url;
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 400);
+    }
+  }
+
+  if (!url) {
+    return c.json({ success: false, error: 'Slack Webhook URL is required' }, 400);
+  }
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text || '🚀 Test alert from VULP automation platform!' }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Slack API error: ${errText}`);
+    }
+    return c.json({ success: true, message: 'Slack message sent successfully' });
   } catch (err: any) {
     return c.json({ success: false, error: err.message }, 400);
   }
@@ -727,7 +961,8 @@ app.get('/api/templates/:id', async (c) => {
 });
 
 app.post('/api/templates/:id/instantiate', async (c) => {
-  const { db } = getServices(c.env);
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
   const id = c.req.param('id');
   const template = WORKFLOW_TEMPLATES.find((t) => t.id === id);
   if (!template) {
@@ -738,6 +973,7 @@ app.post('/api/templates/:id/instantiate', async (c) => {
   const workflowId = nanoid();
   const newWf = {
     id: workflowId,
+    workspaceId: ws.id,
     name: template.name,
     graph: template.graph,
     active: false,
@@ -749,13 +985,25 @@ app.post('/api/templates/:id/instantiate', async (c) => {
   return c.json({ workflow: newWf }, 201);
 });
 
+// SPA & Static Assets fallback
+app.notFound(async (c) => {
+  const url = new URL(c.req.url);
+  if (url.pathname.startsWith('/api') || url.pathname.startsWith('/hook')) {
+    return c.json({ error: 'Endpoint not found', path: url.pathname }, 404);
+  }
+  if (c.env.ASSETS) {
+    return c.env.ASSETS.fetch(c.req.raw);
+  }
+  return c.text('Not Found', 404);
+});
+
 // -----------------------------------------------------------------------------
 // Scheduled Cron Trigger Handler
 // -----------------------------------------------------------------------------
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
-    const { db, runManager } = getServices(env);
+    const { db } = getServices(env);
     console.log(`[Cron] Triggered at ${new Date(event.scheduledTime).toISOString()}`);
 
     const activeWorkflows = await db
@@ -773,11 +1021,11 @@ export default {
 
           try {
             const cron = new Cron(cronExpr, { timezone: tz });
-            // Check if cron was scheduled to run within the last minute
             const now = new Date();
             const prevRun = cron.previousRun();
             if (prevRun && now.getTime() - prevRun.getTime() < 60000) {
               console.log(`[Cron] Executing scheduled workflow '${wf.name}' (${wf.id})`);
+              const { runManager } = getServices(env, wf.workspaceId || undefined);
               const { executionPromise } = await runManager.startRun(wf, {
                 triggerKey: node.key,
                 triggerPayload: { timestamp: now.toISOString(), scheduled: true },

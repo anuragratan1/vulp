@@ -72,6 +72,7 @@ export class WorkerRunManager {
       .insert(schema.runs)
       .values({
         id: runId,
+        workspaceId: workflow.workspaceId,
         workflowId: workflow.id,
         workflowName: workflow.name,
         triggerType: selectedTriggerNode.type,

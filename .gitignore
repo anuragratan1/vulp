@@ -11,7 +11,7 @@ data/
 apps/server/data/
 apps/server/*.db*
 scratch/
-test
+/test
 *.log
 .env
 .env.*

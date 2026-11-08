@@ -390,12 +390,14 @@ export function OverviewView({
               <div className="rounded-[20px] bg-surface border border-border overflow-hidden divide-y divide-border-subtle">
                 {runs.slice(0, 6).map((run) => {
                   const duration = formatDuration(run.startedAt, run.finishedAt);
-                  const statusColors = {
+                  const statusColors: Record<string, string> = {
                     succeeded: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20',
                     failed: 'text-rose-400 bg-rose-400/10 border-rose-400/20',
                     running: 'text-amber-400 bg-amber-400/10 border-amber-400/20 animate-pulse',
                     queued: 'text-text-muted bg-surface-secondary border-border',
-                  }[run.status] || 'text-text-muted bg-surface-secondary border-border';
+                    cancelled: 'text-text-muted bg-surface-secondary border-border',
+                  };
+                  const statusStyle = statusColors[run.status] || 'text-text-muted bg-surface-secondary border-border';
 
                   return (
                     <div
@@ -436,7 +438,7 @@ export function OverviewView({
                           {duration}
                         </span>
                         <span
-                          className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border capitalize ${statusColors}`}
+                          className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border capitalize ${statusStyle}`}
                         >
                           {run.status}
                         </span>
