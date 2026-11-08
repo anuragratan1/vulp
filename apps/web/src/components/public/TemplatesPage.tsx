@@ -6,14 +6,17 @@ import {
   CheckCircle2,
   Lock,
   ExternalLink,
-  Mail,
-  Table,
-  Send,
-  MessageSquare,
   Clock,
   Globe,
   Sliders,
 } from 'lucide-react';
+import {
+  GoogleSheetsIcon,
+  GmailIcon,
+  TelegramIcon,
+  SlackIcon,
+  GitHubIcon,
+} from '../ServiceIcons.js';
 
 interface TemplatesPageProps {
   onBack?: () => void;
@@ -42,8 +45,8 @@ export function TemplatesPage({ onBack, onOpenAuth }: TemplatesPageProps) {
         'Capture incoming leads via secure webhook, append structured contact data to a Google Sheets CRM spreadsheet, and automatically dispatch a personalized confirmation email via Gmail.',
       nodes: [
         { name: 'Capture Lead Form', type: 'webhook.trigger', icon: Globe, iconColor: '#FF7306' },
-        { name: 'Append to CRM Sheet', type: 'sheets.appendRow', icon: Table, iconColor: '#34A853' },
-        { name: 'Send Welcome Email', type: 'gmail.send', icon: Mail, iconColor: '#EA4335' },
+        { name: 'Append to CRM Sheet', type: 'sheets.appendRow', icon: GoogleSheetsIcon, iconColor: '#34A853' },
+        { name: 'Send Welcome Email', type: 'gmail.send', icon: GmailIcon, iconColor: '#EA4335' },
       ],
       credentials: ['Google Sheets write access', 'Gmail send access'],
     },
@@ -56,7 +59,7 @@ export function TemplatesPage({ onBack, onOpenAuth }: TemplatesPageProps) {
       nodes: [
         { name: 'Inbound Form Webhook', type: 'webhook.trigger', icon: Globe, iconColor: '#FF7306' },
         { name: 'Is Priority Lead?', type: 'logic.condition', icon: Sliders, iconColor: '#A855F7' },
-        { name: 'Telegram Priority Alert', type: 'telegram.sendMessage', icon: Send, iconColor: '#229ED9' },
+        { name: 'Telegram Priority Alert', type: 'telegram.sendMessage', icon: TelegramIcon, iconColor: '#229ED9' },
       ],
       credentials: ['Telegram Bot Token'],
     },
@@ -68,8 +71,8 @@ export function TemplatesPage({ onBack, onOpenAuth }: TemplatesPageProps) {
         'Stream crash reports or user bug tickets into a formatted GitHub issue and broadcast real-time deployment status to the engineering team Slack channel.',
       nodes: [
         { name: 'Bug Report Webhook', type: 'webhook.trigger', icon: Globe, iconColor: '#FF7306' },
-        { name: 'Create GitHub Issue', type: 'http.request', icon: Globe, iconColor: '#A1A1AA' },
-        { name: 'Slack Dev Broadcast', type: 'slack.sendMessage', icon: MessageSquare, iconColor: '#4A154B' },
+        { name: 'Create GitHub Issue', type: 'http.request', icon: GitHubIcon, iconColor: '#FFFFFF' },
+        { name: 'Slack Dev Broadcast', type: 'slack.sendMessage', icon: SlackIcon, iconColor: '#4A154B' },
       ],
       credentials: ['GitHub Personal Access Token', 'Slack Webhook URL'],
     },
@@ -81,7 +84,7 @@ export function TemplatesPage({ onBack, onOpenAuth }: TemplatesPageProps) {
         'Trigger recurring daily schedule at 9:00 AM (Monday to Friday) via edge crons, compile agenda items, and deliver an executive email digest to your inbox.',
       nodes: [
         { name: 'Weekday 9 AM Schedule', type: 'schedule.trigger', icon: Clock, iconColor: '#06B6D4' },
-        { name: 'Morning Reminder Email', type: 'gmail.send', icon: Mail, iconColor: '#EA4335' },
+        { name: 'Morning Reminder Email', type: 'gmail.send', icon: GmailIcon, iconColor: '#EA4335' },
       ],
       credentials: ['Gmail send access'],
     },
@@ -93,8 +96,8 @@ export function TemplatesPage({ onBack, onOpenAuth }: TemplatesPageProps) {
         'Poll spreadsheet rows on a recurring hourly cadence, identify unprocessed inventory or status updates, and notify operational logistics groups.',
       nodes: [
         { name: 'Hourly Check', type: 'schedule.trigger', icon: Clock, iconColor: '#06B6D4' },
-        { name: 'Read Pending Items', type: 'sheets.readRows', icon: Table, iconColor: '#34A853' },
-        { name: 'Telegram Dispatch', type: 'telegram.sendMessage', icon: Send, iconColor: '#229ED9' },
+        { name: 'Read Pending Items', type: 'sheets.readRows', icon: GoogleSheetsIcon, iconColor: '#34A853' },
+        { name: 'Telegram Dispatch', type: 'telegram.sendMessage', icon: TelegramIcon, iconColor: '#229ED9' },
       ],
       credentials: ['Google Sheets read access', 'Telegram Bot Token'],
     },

@@ -5,16 +5,18 @@ import {
   Zap,
   CheckCircle2,
   Play,
-  Terminal,
   GitBranch,
   Lock,
   Globe,
-  Mail,
-  Table,
-  Send,
-  MessageSquare,
   Sliders,
 } from 'lucide-react';
+import {
+  GmailIcon,
+  GoogleSheetsIcon,
+  GoogleDriveIcon,
+  TelegramIcon,
+  SlackIcon,
+} from '../ServiceIcons.js';
 import { PublicNavbar } from './PublicNavbar.js';
 import { PublicFooter } from './PublicFooter.js';
 import { AuthModal } from './AuthModal.js';
@@ -495,8 +497,8 @@ export function LandingPage({ onEnterApp, initialPath = 'home', autoOpenAuth = n
                 >
                   <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#222222]">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-[#34A853]/10 text-[#34A853] flex items-center justify-center">
-                        <Table className="w-4 h-4" />
+                      <div className="w-7 h-7 rounded-lg bg-[#34A853]/15 flex items-center justify-center p-1.5">
+                        <GoogleSheetsIcon size={16} />
                       </div>
                       <span className="text-[11px] font-bold text-white">CRM Sheets</span>
                     </div>
@@ -523,8 +525,8 @@ export function LandingPage({ onEnterApp, initialPath = 'home', autoOpenAuth = n
                 >
                   <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#222222]">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-[#229ED9]/10 text-[#229ED9] flex items-center justify-center">
-                        <Send className="w-4 h-4" />
+                      <div className="w-7 h-7 rounded-lg bg-[#229ED9]/15 flex items-center justify-center p-1.5">
+                        <TelegramIcon size={16} />
                       </div>
                       <span className="text-[11px] font-bold text-white">Telegram</span>
                     </div>
@@ -652,30 +654,33 @@ export function LandingPage({ onEnterApp, initialPath = 'home', autoOpenAuth = n
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {[
-              { name: 'Gmail', icon: Mail, color: '#EA4335', action: 'Send RFC-2822' },
-              { name: 'Google Sheets', icon: Table, color: '#34A853', action: 'Append & Query' },
-              { name: 'Google Drive', icon: Globe, color: '#4285F4', action: 'Upload & Search' },
-              { name: 'Telegram Bot', icon: Send, color: '#229ED9', action: 'Markdown Alerts' },
-              { name: 'Slack API', icon: MessageSquare, color: '#4A154B', action: 'Channel Webhooks' },
-              { name: 'HTTP REST', icon: Terminal, color: '#FF7306', action: 'Custom Egress' },
-            ].map((app) => (
-              <div
-                key={app.name}
-                onClick={() => handleNavigateView('integrations')}
-                className="p-5 rounded-2xl bg-[#121212] border border-[#202020] hover:border-[#333333] cursor-pointer transition-all space-y-3 text-center group"
-              >
+              { name: 'Gmail', icon: GmailIcon, color: '#EA4335', action: 'Send RFC-2822' },
+              { name: 'Google Sheets', icon: GoogleSheetsIcon, color: '#34A853', action: 'Append & Query' },
+              { name: 'Google Drive', icon: GoogleDriveIcon, color: '#4285F4', action: 'Upload & Search' },
+              { name: 'Telegram Bot', icon: TelegramIcon, color: '#229ED9', action: 'Markdown Alerts' },
+              { name: 'Slack API', icon: SlackIcon, color: '#4A154B', action: 'Channel Webhooks' },
+              { name: 'HTTP REST', icon: Globe, color: '#FF7306', action: 'Custom Egress' },
+            ].map((app) => {
+              const AppIcon = app.icon;
+              return (
                 <div
-                  className="w-10 h-10 rounded-xl mx-auto flex items-center justify-center border group-hover:scale-110 transition-transform"
-                  style={{ backgroundColor: `${app.color}15`, borderColor: `${app.color}30`, color: app.color }}
+                  key={app.name}
+                  onClick={() => handleNavigateView('integrations')}
+                  className="p-5 rounded-2xl bg-[#121212] border border-[#202020] hover:border-[#333333] cursor-pointer transition-all space-y-3 text-center group"
                 >
-                  <app.icon className="w-5 h-5" />
+                  <div
+                    className="w-10 h-10 rounded-xl mx-auto flex items-center justify-center border group-hover:scale-110 transition-transform p-2"
+                    style={{ backgroundColor: `${app.color}15`, borderColor: `${app.color}30` }}
+                  >
+                    <AppIcon size={20} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-white block">{app.name}</span>
+                    <span className="text-[10px] text-[#71717A] font-mono">{app.action}</span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-xs font-bold text-white block">{app.name}</span>
-                  <span className="text-[10px] text-[#71717A] font-mono">{app.action}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>

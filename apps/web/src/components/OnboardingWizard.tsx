@@ -4,8 +4,6 @@ import {
   CheckCircle2,
   ArrowRight,
   ShieldCheck,
-  Send,
-  MessageSquare,
   Zap,
   Globe,
   X,
@@ -14,6 +12,14 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
 import { api } from '../api/client.js';
+import {
+  GoogleIcon,
+  TelegramIcon,
+  SlackIcon,
+  GoogleFormsIcon,
+  GoogleSheetsIcon,
+  GmailIcon,
+} from './ServiceIcons.js';
 
 interface OnboardingWizardProps {
   onComplete: (action?: { type: 'template' | 'blank'; templateId?: string }) => void;
@@ -228,8 +234,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 {/* Google Workspace */}
                 <div className="p-4 rounded-xl border border-border bg-surface-elevated/40 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center font-bold text-blue-400 text-lg">
-                      G
+                    <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center p-2">
+                      <GoogleIcon size={24} />
                     </div>
                     <div>
                       <h4 className="text-sm font-semibold text-text-primary">Google Workspace</h4>
@@ -264,8 +270,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 <div className="p-4 rounded-xl border border-border bg-surface-elevated/40 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-                        <Send className="w-5 h-5" />
+                      <div className="w-10 h-10 rounded-xl bg-[#229ED9]/10 border border-[#229ED9]/20 flex items-center justify-center p-2">
+                        <TelegramIcon size={24} />
                       </div>
                       <div>
                         <h4 className="text-sm font-semibold text-text-primary">Telegram Bot</h4>
@@ -312,8 +318,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 <div className="p-4 rounded-xl border border-border bg-surface-elevated/40 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-pink-400">
-                        <MessageSquare className="w-5 h-5" />
+                      <div className="w-10 h-10 rounded-xl bg-[#4A154B]/10 border border-[#4A154B]/20 flex items-center justify-center p-2">
+                        <SlackIcon size={24} />
                       </div>
                       <div>
                         <h4 className="text-sm font-semibold text-text-primary">Slack Webhook</h4>
@@ -366,8 +372,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   className="p-4 rounded-xl border border-border hover:border-[#FF7306]/50 bg-surface-elevated/40 hover:bg-surface-elevated text-left transition-all duration-150 flex flex-col justify-between group"
                 >
                   <div className="space-y-2">
-                    <div className="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center font-bold text-xs">
-                      📋
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-8 h-8 rounded-lg bg-[#7248B9]/15 flex items-center justify-center p-1.5">
+                        <GoogleFormsIcon size={18} />
+                      </div>
+                      <span className="text-[10px] text-text-tertiary font-mono">→</span>
+                      <div className="w-8 h-8 rounded-lg bg-[#229ED9]/15 flex items-center justify-center p-1.5">
+                        <TelegramIcon size={18} />
+                      </div>
                     </div>
                     <h4 className="text-sm font-semibold text-text-primary group-hover:text-[#FF7306] transition-colors">
                       Google Forms to Telegram
@@ -387,8 +399,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   className="p-4 rounded-xl border border-border hover:border-[#FF7306]/50 bg-surface-elevated/40 hover:bg-surface-elevated text-left transition-all duration-150 flex flex-col justify-between group"
                 >
                   <div className="space-y-2">
-                    <div className="w-8 h-8 rounded-lg bg-green-500/10 text-green-400 flex items-center justify-center font-bold text-xs">
-                      📊
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-8 h-8 rounded-lg bg-[#8B5CF6]/15 text-[#8B5CF6] flex items-center justify-center">
+                        <Globe className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px] text-text-tertiary font-mono">→</span>
+                      <div className="w-8 h-8 rounded-lg bg-[#34A853]/15 flex items-center justify-center p-1.5">
+                        <GoogleSheetsIcon size={18} />
+                      </div>
                     </div>
                     <h4 className="text-sm font-semibold text-text-primary group-hover:text-[#FF7306] transition-colors">
                       Webhook to Google Sheets
@@ -408,8 +426,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   className="p-4 rounded-xl border border-border hover:border-[#FF7306]/50 bg-surface-elevated/40 hover:bg-surface-elevated text-left transition-all duration-150 flex flex-col justify-between group"
                 >
                   <div className="space-y-2">
-                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold text-xs">
-                      ✉️
+                    <div className="w-8 h-8 rounded-lg bg-[#EA4335]/15 flex items-center justify-center p-1.5">
+                      <GmailIcon size={18} />
                     </div>
                     <h4 className="text-sm font-semibold text-text-primary group-hover:text-[#FF7306] transition-colors">
                       Scheduled Gmail Alert
@@ -429,8 +447,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   className="p-4 rounded-xl border border-dashed border-border hover:border-[#FF7306] bg-surface/40 hover:bg-surface-elevated text-left transition-all duration-150 flex flex-col justify-between group"
                 >
                   <div className="space-y-2">
-                    <div className="w-8 h-8 rounded-lg bg-white/5 text-text-primary flex items-center justify-center font-bold text-xs">
-                      ⚡
+                    <div className="w-8 h-8 rounded-lg bg-[#FF7306]/15 text-[#FF7306] flex items-center justify-center">
+                      <Zap className="w-4 h-4" />
                     </div>
                     <h4 className="text-sm font-semibold text-text-primary group-hover:text-[#FF7306] transition-colors">
                       Blank Canvas
