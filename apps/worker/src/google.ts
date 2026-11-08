@@ -177,13 +177,20 @@ googleApp.get('/api/auth/callback/google', async (c) => {
               name: ${JSON.stringify(name)}
             };
             try {
+              localStorage.setItem('vulp_oauth_event', JSON.stringify({ ...payload, ts: Date.now() }));
+            } catch (e) {}
+            try {
               const bc = new BroadcastChannel('vulp_oauth');
               bc.postMessage(payload);
             } catch (e) {}
             if (window.opener) {
-              window.opener.postMessage(payload, '*');
+              try {
+                window.opener.postMessage(payload, '*');
+              } catch (e) {}
             }
-            setTimeout(() => window.close(), 1200);
+            setTimeout(() => {
+              try { window.close(); } catch(e) {}
+            }, 300);
           </script>
         </body>
       </html>

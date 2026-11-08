@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Sparkles,
   CheckCircle2,
@@ -44,29 +44,104 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   // Google OAuth state
   const [googleStatus, setGoogleStatus] = useState<'idle' | 'connecting' | 'success'>('idle');
 
+  // Check if Google Workspace is already connected on mount and listen to OAuth signals
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkExistingGoogle = async () => {
+      try {
+        const conns = await api.getConnections();
+        if (!isMounted) return;
+        if (conns.some((c) => c.type.toLowerCase().includes('google'))) {
+          setGoogleStatus('success');
+        }
+      } catch {}
+    };
+
+    checkExistingGoogle();
+
+    const handleOAuthSuccess = () => {
+      if (!isMounted) return;
+      setGoogleStatus('success');
+    };
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'vulp_oauth_success' && event.data?.service === 'google') {
+        handleOAuthSuccess();
+      }
+    };
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('vulp_oauth');
+      bc.onmessage = (event) => {
+        if (event.data?.type === 'vulp_oauth_success' && event.data?.service === 'google') {
+          handleOAuthSuccess();
+        }
+      };
+    } catch {}
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'vulp_oauth_event' && event.newValue) {
+        try {
+          const data = JSON.parse(event.newValue);
+          if (data?.type === 'vulp_oauth_success' && data?.service === 'google') {
+            handleOAuthSuccess();
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('message', handleMessage);
+      window.removeEventListener('storage', handleStorage);
+      bc?.close();
+    };
+  }, []);
+
+  // Poll connection status while "connecting" to recover immediately when authorization completes
+  useEffect(() => {
+    if (googleStatus !== 'connecting') return;
+    const interval = setInterval(async () => {
+      try {
+        const conns = await api.getConnections();
+        if (conns.some((c) => c.type.toLowerCase().includes('google'))) {
+          setGoogleStatus('success');
+          clearInterval(interval);
+        }
+      } catch {}
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [googleStatus]);
+
   const handleConnectGoogle = async () => {
     try {
       setGoogleStatus('connecting');
-      const origin = typeof window !== 'undefined' ? window.location.origin : '';
-      const authData = await api.getGoogleAuthUrl(origin, workspace?.id);
-
       const width = 500;
       const height = 650;
       const left = window.screenX + (window.outerWidth - width) / 2;
       const top = window.screenY + (window.outerHeight - height) / 2;
-      window.open(
-        authData.url,
+
+      // Open popup synchronously on user click to prevent browser throttling
+      const popup = window.open(
+        'about:blank',
         'vulp_google_auth',
         `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
       );
 
-      const handler = (event: MessageEvent) => {
-        if (event.data?.type === 'vulp_oauth_success' && event.data?.service === 'google') {
-          setGoogleStatus('success');
-          window.removeEventListener('message', handler);
-        }
-      };
-      window.addEventListener('message', handler);
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const authData = await api.getGoogleAuthUrl(origin, workspace?.id);
+
+      if (popup && !popup.closed) {
+        popup.location.href = authData.url;
+      } else {
+        window.location.href = authData.url;
+      }
     } catch {
       setGoogleStatus('idle');
     }
