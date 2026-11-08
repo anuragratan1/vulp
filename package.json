@@ -1,0 +1,27 @@
+{
+  "name": "visual-workflow-automation-platform",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=@workflow/web",
+    "dev:server": "npm run dev --workspace=@workflow/server",
+    "dev": "npm run dev:server & npm run dev:web",
+    "build": "npm run build --workspaces --if-present",
+    "start": "node apps/server/dist/index.js",
+    "clean": "rm -rf apps/*/dist packages/*/dist",
+    "test": "npm run test --workspaces --if-present",
+    "test:engine": "npm run test --workspace=@workflow/engine",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:push": "npm run db:push --workspace=@workflow/server"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,106 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        mono: ['"Geist Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        display: ['"Poppins"', '"Plus Jakarta Sans"', 'sans-serif'],
+      },
+      borderRadius: {
+        '12': '12px',
+        '14': '14px',
+        '16': '16px',
+        '18': '18px',
+        '20': '20px',
+        '22': '22px',
+        '24': '24px',
+        '26': '26px',
+        '28': '28px',
+        '32': '32px',
+        '36': '36px',
+        'full': '9999px',
+        'panel': '26px',
+        'card': '22px',
+        'node': '18px',
+        'input': '14px',
+        'btn': '14px',
+        'chip': '9999px',
+      },
+      boxShadow: {
+        'subtle': '0 2px 6px rgba(0, 0, 0, 0.1)',
+        'node': '0 4px 14px rgba(0, 0, 0, 0.08)',
+        'node-hover': '0 8px 24px rgba(0, 0, 0, 0.12)',
+        'panel': '0 12px 32px rgba(0, 0, 0, 0.15)',
+        'modal': '0 24px 64px rgba(0, 0, 0, 0.25)',
+        'glow-accent': '0 0 16px rgba(59, 130, 246, 0.3)',
+        'glow-warning': '0 0 16px rgba(245, 158, 11, 0.25)',
+        'glow-success': '0 0 16px rgba(52, 211, 153, 0.25)',
+      },
+      colors: {
+        background: 'var(--color-bg)',
+        surface: {
+          DEFAULT: 'var(--color-surface)',
+          secondary: 'var(--color-surface-secondary)',
+          elevated: 'var(--color-surface-elevated)',
+          hover: 'var(--color-surface-hover)',
+        },
+        border: {
+          DEFAULT: 'var(--color-border)',
+          subtle: 'var(--color-border-subtle)',
+          hover: 'var(--color-border-hover)',
+        },
+        text: {
+          primary: 'var(--color-text-primary)',
+          secondary: 'var(--color-text-secondary)',
+          muted: 'var(--color-text-muted)',
+        },
+        node: {
+          DEFAULT: 'var(--color-node-bg)',
+          border: 'var(--color-node-border)',
+          icon: 'var(--color-node-icon-bg)',
+          iconBorder: 'var(--color-node-icon-border)',
+        },
+        input: {
+          DEFAULT: 'var(--color-input-bg)',
+          border: 'var(--color-input-border)',
+        },
+        trigger: {
+          DEFAULT: 'var(--color-trigger)',
+          surface: 'var(--color-trigger-surface)',
+          border: 'var(--color-trigger-border)',
+          text: 'var(--color-trigger-text)',
+        },
+        action: {
+          DEFAULT: 'var(--color-action)',
+          surface: 'var(--color-action-surface)',
+          border: 'var(--color-action-border)',
+          text: 'var(--color-action-text)',
+        },
+        logic: {
+          DEFAULT: 'var(--color-logic)',
+          surface: 'var(--color-logic-surface)',
+          border: 'var(--color-logic-border)',
+          text: 'var(--color-logic-text)',
+        },
+        accent: {
+          DEFAULT: 'var(--color-accent)',
+          hover: 'var(--color-accent-hover)',
+        },
+        edge: {
+          DEFAULT: 'var(--color-edge)',
+          selected: 'var(--color-edge-selected)',
+        },
+        danger: 'var(--color-danger)',
+        success: 'var(--color-success)',
+        warning: 'var(--color-warning)',
+      },
+    },
+  },
+  plugins: [],
+}

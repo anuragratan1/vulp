@@ -1,0 +1,585 @@
+import { CanvasNode, CanvasEdge } from '../graphConverter.js';
+import { NodeRunRecord } from '../../api/client.js';
+
+export interface DiscoveredVariable {
+  id: string; // e.g. "webhook_lead.body.customer.email"
+  rawExpression: string; // e.g. "{{ webhook_lead.body.customer.email }}"
+  nodeKey: string; // e.g. "webhook_lead"
+  stepName: string; // e.g. "Capture Lead Form"
+  stepType: string; // e.g. "webhook.trigger"
+  path: string; // e.g. "body.customer.email"
+  label: string; // e.g. "Customer Email"
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  sampleValue?: string;
+  sourceCategory: 'execution' | 'sample' | 'schema' | 'system';
+}
+
+export interface StepVariableGroup {
+  nodeId: string;
+  nodeKey: string;
+  nodeName: string;
+  nodeType: string;
+  hasLiveOutputs: boolean;
+  variables: DiscoveredVariable[];
+}
+
+/**
+ * Humanize a data path segment into a clean, readable label.
+ * e.g. "customer_email" -> "Customer Email"
+ * e.g. "items[0].unit_price" -> "Item 1 Unit Price"
+ */
+export function formatFieldLabel(path: string): string {
+  if (!path) return '';
+
+  // Strip common root containers like "body." or "data." if nested
+  let displayPath = path;
+  if (displayPath.startsWith('body.') && displayPath.length > 5) {
+    displayPath = displayPath.slice(5);
+  } else if (displayPath.startsWith('data.') && displayPath.length > 5) {
+    displayPath = displayPath.slice(5);
+  }
+
+  // Handle array index like items[0] -> items [0]
+  displayPath = displayPath.replace(/\[(\d+)\]/g, (_, idx) => ` [${idx}] `);
+
+  const parts = displayPath.split('.').filter(Boolean);
+  const formattedParts = parts.map((part) => {
+    // Replace underscores and dashes
+    const unslugged = part.replace(/[_-]+/g, ' ');
+    // Split camelCase
+    const decamel = unslugged.replace(/([a-z\d])([A-Z])/g, '$1 $2');
+    // Title Case, preserving acronyms
+    return decamel
+      .trim()
+      .split(/\s+/)
+      .map((w) => {
+        const up = w.toUpperCase();
+        if (['ID', 'URL', 'IP', 'HTTP', 'API', 'UUID', 'JSON', 'HTML'].includes(up)) {
+          return up;
+        }
+        return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+      })
+      .join(' ');
+  });
+
+  return formattedParts.join(' ');
+}
+
+/**
+ * Recursively inspect an object or array to discover all dot-notation paths,
+ * types, and real sample values.
+ */
+export function extractFieldsFromData(
+  data: any,
+  nodeKey: string,
+  stepName = 'Step',
+  stepType = 'action',
+  sourceCategory: 'execution' | 'sample' | 'schema' = 'execution',
+  prefix = '',
+  depth = 0,
+  maxDepth = 4
+): DiscoveredVariable[] {
+  const result: DiscoveredVariable[] = [];
+
+  if (depth > maxDepth || data === undefined) {
+    return result;
+  }
+
+  if (data === null) {
+    if (prefix) {
+      result.push({
+        id: `${nodeKey}.${prefix}`,
+        rawExpression: `{{ ${nodeKey}.${prefix} }}`,
+        nodeKey,
+        stepName,
+        stepType,
+        path: prefix,
+        label: formatFieldLabel(prefix),
+        type: 'string',
+        sampleValue: 'null',
+        sourceCategory,
+      });
+    }
+    return result;
+  }
+
+  const valueType = typeof data;
+
+  if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
+    if (prefix) {
+      let sample = String(data);
+      if (valueType === 'string') {
+        sample = sample.length > 40 ? `${sample.slice(0, 37)}...` : sample;
+      }
+      result.push({
+        id: `${nodeKey}.${prefix}`,
+        rawExpression: `{{ ${nodeKey}.${prefix} }}`,
+        nodeKey,
+        stepName,
+        stepType,
+        path: prefix,
+        label: formatFieldLabel(prefix),
+        type: valueType,
+        sampleValue: sample,
+        sourceCategory,
+      });
+    }
+    return result;
+  }
+
+  if (Array.isArray(data)) {
+    if (prefix) {
+      result.push({
+        id: `${nodeKey}.${prefix}`,
+        rawExpression: `{{ ${nodeKey}.${prefix} }}`,
+        nodeKey,
+        stepName,
+        stepType,
+        path: prefix,
+        label: `${formatFieldLabel(prefix)} (List)`,
+        type: 'array',
+        sampleValue: `[${data.length} items]`,
+        sourceCategory,
+      });
+    }
+
+    // Inspect first item to discover array child fields
+    if (data.length > 0) {
+      const firstItemFields = extractFieldsFromData(
+        data[0],
+        nodeKey,
+        stepName,
+        stepType,
+        sourceCategory,
+        prefix ? `${prefix}[0]` : '[0]',
+        depth + 1,
+        maxDepth
+      );
+      result.push(...firstItemFields);
+    }
+    return result;
+  }
+
+  if (valueType === 'object') {
+    if (prefix) {
+      result.push({
+        id: `${nodeKey}.${prefix}`,
+        rawExpression: `{{ ${nodeKey}.${prefix} }}`,
+        nodeKey,
+        stepName,
+        stepType,
+        path: prefix,
+        label: `${formatFieldLabel(prefix)} (Object)`,
+        type: 'object',
+        sampleValue: '{...}',
+        sourceCategory,
+      });
+    }
+
+    const keys = Object.keys(data);
+    for (const key of keys.slice(0, 40)) {
+      const nextPrefix = prefix ? `${prefix}.${key}` : key;
+      const childFields = extractFieldsFromData(
+        data[key],
+        nodeKey,
+        stepName,
+        stepType,
+        sourceCategory,
+        nextPrefix,
+        depth + 1,
+        maxDepth
+      );
+      result.push(...childFields);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Return standard structural output schemas for known VULP node types
+ * when neither execution records nor user sample data exist yet.
+ */
+export function getDefaultNodeSchema(
+  type: string,
+  nodeKey = 'step',
+  stepName = 'Step'
+): DiscoveredVariable[] {
+  const fields: DiscoveredVariable[] = [];
+
+  const add = (
+    path: string,
+    label: string,
+    type: 'string' | 'number' | 'boolean' | 'object' | 'array',
+    sampleValue?: string
+  ) => {
+    fields.push({
+      id: `${nodeKey}.${path}`,
+      rawExpression: `{{ ${nodeKey}.${path} }}`,
+      nodeKey,
+      stepName,
+      stepType: type,
+      path,
+      label,
+      type,
+      sampleValue,
+      sourceCategory: 'schema',
+    });
+  };
+
+  switch (type) {
+    case 'google_forms.trigger':
+    case 'forms.trigger':
+      add('responseId', 'Response ID', 'string', 'resp_101');
+      add('formId', 'Form ID', 'string', '1FAIpQLSc...');
+      add('formTitle', 'Form Title', 'string', 'Customer Intake Form');
+      add('submittedAt', 'Submitted At', 'string', new Date().toISOString());
+      add('respondentEmail', 'Respondent Email', 'string', 'sarah.c@sky.net');
+      add('leadId', 'Lead ID', 'string', 'LEAD-101');
+      add('name', 'Name', 'string', 'Sarah Connor');
+      add('email', 'Email', 'string', 'sarah.c@sky.net');
+      add('phone', 'Phone', 'string', '+1-555-0199');
+      add('score', 'Score', 'number', '95');
+      add('source', 'Source', 'string', 'Website Intake');
+      add('answers', 'Answers Map', 'object', '{ ... }');
+      break;
+
+    case 'webhook.trigger':
+      add('body', 'Request Body', 'object', '{ ... }');
+      add('headers', 'Request Headers', 'object', '{ ... }');
+      add('query', 'URL Query Parameters', 'object', '{ ... }');
+      add('timestamp', 'Received Timestamp', 'number', String(Date.now()));
+      break;
+
+    case 'manual.trigger':
+      add('payload', 'Trigger Payload', 'object', '{ ... }');
+      break;
+
+    case 'schedule.trigger':
+      add('timestamp', 'Trigger Timestamp', 'string', new Date().toISOString());
+      add('scheduledTime', 'Scheduled Time', 'string', '12:00:00');
+      add('timezone', 'Timezone', 'string', 'UTC');
+      break;
+
+    case 'gmail.sendEmail':
+      add('id', 'Message ID', 'string', '189a2b3c4d5e');
+      add('threadId', 'Thread ID', 'string', '189a2b3c4d5e');
+      add('to', 'Recipient Email', 'string', 'user@example.com');
+      add('subject', 'Email Subject', 'string', 'Automated Notification');
+      add('sentAt', 'Sent Timestamp', 'string', new Date().toISOString());
+      break;
+
+    case 'sheets.appendRow':
+    case 'sheets.updateRow':
+      add('appended', 'Status', 'boolean', 'true');
+      add('spreadsheetId', 'Spreadsheet ID', 'string', '1BxiMVs0XRA5nFMd...');
+      add('sheetName', 'Sheet Name', 'string', 'Sheet1');
+      add('updatedRange', 'Updated Range', 'string', 'Sheet1!A2:E2');
+      add('updatedRows', 'Updated Rows Count', 'number', '1');
+      break;
+
+    case 'sheets.readRows':
+      add('rows', 'All Rows', 'array', '[...]');
+      add('rowCount', 'Row Count', 'number', '25');
+      add('spreadsheetId', 'Spreadsheet ID', 'string', '1BxiMVs0XRA5nFMd...');
+      add('range', 'Read Range', 'string', 'Sheet1!A1:E25');
+      break;
+
+    case 'drive.uploadFile':
+      add('id', 'File ID', 'string', '1A2B3C4D5E6F');
+      add('name', 'File Name', 'string', 'document.pdf');
+      add('mimeType', 'MIME Type', 'string', 'application/pdf');
+      add('webViewLink', 'Web View Link', 'string', 'https://drive.google.com/file/d/...');
+      add('size', 'File Size (bytes)', 'number', '204850');
+      break;
+
+    case 'calendar.createEvent':
+      add('id', 'Event ID', 'string', 'ev_99812401');
+      add('summary', 'Event Title', 'string', 'Meeting');
+      add('htmlLink', 'Google Calendar URL', 'string', 'https://calendar.google.com/event?...');
+      add('startTime', 'Start Time', 'string', new Date().toISOString());
+      add('endTime', 'End Time', 'string', new Date().toISOString());
+      add('status', 'Event Status', 'string', 'confirmed');
+      break;
+
+    case 'telegram.sendMessage':
+      add('messageId', 'Telegram Message ID', 'number', '4201');
+      add('chatId', 'Chat ID', 'string', '123456789');
+      add('text', 'Message Text', 'string', 'Alert dispatched');
+      add('sentAt', 'Sent Timestamp', 'string', new Date().toISOString());
+      break;
+
+    case 'slack.postMessage':
+      add('ok', 'Delivery Status', 'boolean', 'true');
+      add('channel', 'Channel ID / Name', 'string', '#general');
+      add('ts', 'Message Timestamp', 'string', '1700000000.000100');
+      add('message', 'Message Text', 'string', 'Notification posted');
+      break;
+
+    case 'github.createIssue':
+      add('id', 'Issue ID', 'number', '109284');
+      add('number', 'Issue Number', 'number', '42');
+      add('title', 'Issue Title', 'string', 'Bug Report');
+      add('htmlUrl', 'GitHub Issue Link', 'string', 'https://github.com/owner/repo/issues/42');
+      add('state', 'State', 'string', 'open');
+      break;
+
+    case 'http.request':
+      add('status', 'HTTP Status Code', 'number', '200');
+      add('statusText', 'Status Text', 'string', 'OK');
+      add('headers', 'Response Headers', 'object', '{ ... }');
+      add('body', 'Response Body', 'object', '{ ... }');
+      break;
+
+    case 'logic.if':
+      add('result', 'Condition Result', 'boolean', 'true');
+      add('left', 'Left Evaluated Value', 'string', 'resolved_val');
+      add('operator', 'Operator Used', 'string', 'equals');
+      break;
+
+    case 'logic.delay':
+      add('waitedMs', 'Duration Waited (ms)', 'number', '5000');
+      break;
+
+    default:
+      add('output', 'Step Output', 'object', '{ ... }');
+      break;
+  }
+
+  return fields;
+}
+
+/**
+ * Return system-level dynamic helpers like $now and $uuid.
+ */
+export function getSystemVariables(): DiscoveredVariable[] {
+  return [
+    {
+      id: 'system.$now',
+      rawExpression: '{{ $now }}',
+      nodeKey: '$now',
+      stepName: 'System',
+      stepType: 'system',
+      path: '$now',
+      label: 'Current Date & Time',
+      type: 'string',
+      sampleValue: new Date().toISOString(),
+      sourceCategory: 'system',
+    },
+    {
+      id: 'system.$uuid',
+      rawExpression: '{{ $uuid }}',
+      nodeKey: '$uuid',
+      stepName: 'System',
+      stepType: 'system',
+      path: '$uuid',
+      label: 'Unique ID (UUID)',
+      type: 'string',
+      sampleValue: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+      sourceCategory: 'system',
+    },
+  ];
+}
+
+/**
+ * Topologically discover all ancestors of `currentNodeId` in the graph.
+ */
+export function getUpstreamNodes(
+  currentNodeId: string,
+  allNodes: CanvasNode[],
+  edges: CanvasEdge[] = []
+): CanvasNode[] {
+  if (!currentNodeId || allNodes.length <= 1) {
+    return allNodes.filter((n) => n.id !== currentNodeId);
+  }
+
+  // If no edges, return all other nodes
+  if (!edges || edges.length === 0) {
+    return allNodes.filter((n) => n.id !== currentNodeId);
+  }
+
+  // Build incoming adjacency map (target -> sources)
+  const incomingMap = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (!incomingMap.has(edge.target)) {
+      incomingMap.set(edge.target, []);
+    }
+    incomingMap.get(edge.target)!.push(edge.source);
+  }
+
+  // Traverse backwards from currentNodeId
+  const ancestorIds = new Set<string>();
+  const queue = [...(incomingMap.get(currentNodeId) || [])];
+
+  while (queue.length > 0) {
+    const parentId = queue.shift()!;
+    if (!ancestorIds.has(parentId)) {
+      ancestorIds.add(parentId);
+      const grandParents = incomingMap.get(parentId) || [];
+      for (const gp of grandParents) {
+        if (!ancestorIds.has(gp)) {
+          queue.push(gp);
+        }
+      }
+    }
+  }
+
+  // If node is connected to ancestors, return only those ancestors in DAG order
+  if (ancestorIds.size > 0) {
+    return allNodes.filter((n) => ancestorIds.has(n.id));
+  }
+
+  // Fallback if isolated node: return all other nodes
+  return allNodes.filter((n) => n.id !== currentNodeId);
+}
+
+/**
+ * Main discovery orchestrator. Derives variable suggestions for each eligible
+ * upstream node, inspecting:
+ * 1. Actual outputs from previous execution runs (nodeRuns)
+ * 2. User-supplied sample data in node params (e.g. manual trigger payload)
+ * 3. Default node type schemas
+ */
+export function discoverWorkflowVariables({
+  currentNodeId,
+  allNodes = [],
+  edges = [],
+  nodeRuns = [],
+  includeSystem = true,
+}: {
+  currentNodeId?: string;
+  allNodes?: CanvasNode[];
+  edges?: CanvasEdge[];
+  nodeRuns?: NodeRunRecord[];
+  includeSystem?: boolean;
+}): StepVariableGroup[] {
+  const eligibleNodes = currentNodeId
+    ? getUpstreamNodes(currentNodeId, allNodes, edges)
+    : allNodes;
+
+  const groups: StepVariableGroup[] = [];
+
+  for (const node of eligibleNodes) {
+    const nodeKey = node.data.key || node.id;
+    const nodeName = node.data.name || nodeKey;
+    const nodeType = (node.data.nodeType || node.data.type || '') as string;
+
+    let discoveredVars: DiscoveredVariable[] = [];
+    let hasLiveOutputs = false;
+
+    // 1. Check actual execution output from recent node runs
+    const matchingRun = nodeRuns
+      .filter((nr) => (nr.nodeKey === nodeKey || nr.nodeKey === node.id) && nr.status === 'succeeded')
+      .sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0))[0];
+
+    if (matchingRun && matchingRun.output && typeof matchingRun.output === 'object') {
+      const liveVars = extractFieldsFromData(
+        matchingRun.output,
+        nodeKey,
+        nodeName,
+        nodeType,
+        'execution'
+      );
+      if (liveVars.length > 0) {
+        discoveredVars = liveVars;
+        hasLiveOutputs = true;
+      }
+    }
+
+    // 2. Check user-supplied sample data (e.g. manual trigger payload or webhook sample)
+    if (!hasLiveOutputs && node.data.params) {
+      const params = node.data.params;
+      let sampleData: any = null;
+
+      if (nodeType === 'manual.trigger' && params.payload) {
+        if (typeof params.payload === 'string') {
+          try {
+            sampleData = JSON.parse(params.payload);
+          } catch {
+            sampleData = { text: params.payload };
+          }
+        } else if (typeof params.payload === 'object') {
+          sampleData = params.payload;
+        }
+      } else if (nodeType === 'webhook.trigger') {
+        const rawPayload = params.samplePayload ?? params.lastPayload ?? params.payload;
+        if (rawPayload) {
+          let parsed = rawPayload;
+          if (typeof rawPayload === 'string') {
+            try {
+              parsed = JSON.parse(rawPayload);
+            } catch {
+              parsed = { text: rawPayload };
+            }
+          }
+          if (parsed && typeof parsed === 'object') {
+            // If already wrapped with body/headers/query, use as-is; otherwise wrap under body
+            if ('body' in parsed || 'headers' in parsed || 'query' in parsed) {
+              sampleData = parsed;
+            } else {
+              sampleData = { body: parsed };
+            }
+          }
+        }
+      } else if (nodeType === 'google_forms.trigger' || nodeType === 'forms.trigger') {
+        const rawPayload = params.samplePayload ?? params.lastPayload ?? params.payload;
+        if (rawPayload) {
+          let parsed = rawPayload;
+          if (typeof rawPayload === 'string') {
+            try {
+              parsed = JSON.parse(rawPayload);
+            } catch {
+              parsed = { text: rawPayload };
+            }
+          }
+          if (parsed && typeof parsed === 'object') {
+            sampleData = parsed;
+          }
+        }
+      }
+
+      if (sampleData && typeof sampleData === 'object') {
+        const sampleVars = extractFieldsFromData(
+          sampleData,
+          nodeKey,
+          nodeName,
+          nodeType,
+          'sample'
+        );
+        if (sampleVars.length > 0) {
+          discoveredVars = sampleVars;
+        }
+      }
+    }
+
+    // 3. Fallback: Structural schema
+    if (discoveredVars.length === 0) {
+      discoveredVars = getDefaultNodeSchema(nodeType, nodeKey, nodeName);
+    }
+
+    if (discoveredVars.length > 0) {
+      groups.push({
+        nodeId: node.id,
+        nodeKey,
+        nodeName,
+        nodeType,
+        hasLiveOutputs,
+        variables: discoveredVars,
+      });
+    }
+  }
+
+  // Append system variables
+  if (includeSystem) {
+    groups.push({
+      nodeId: 'system',
+      nodeKey: 'system',
+      nodeName: 'System Variables',
+      nodeType: 'system',
+      hasLiveOutputs: true,
+      variables: getSystemVariables(),
+    });
+  }
+
+  return groups;
+}

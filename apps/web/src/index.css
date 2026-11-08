@@ -1,0 +1,869 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+
+  /* Border Radii Tokens */
+  --radius-12: 12px;
+  --radius-16: 16px;
+  --radius-18: 18px;
+  --radius-20: 20px;
+  --radius-24: 24px;
+  --radius-28: 28px;
+  --radius-32: 32px;
+  --radius-36: 36px;
+  --radius-full: 9999px;
+
+  /* Typography */
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* =========================================================================
+     DEFAULT APPLICATION THEME: Achromatic Neutral Dark
+     Pure grayscale surfaces with no blue, purple, or indigo tint.
+     #0F0F0F canvas, #171717 secondary surface, #181818 surface.
+     ========================================================================= */
+  --color-bg: #0F0F0F;                 /* Canvas / app background */
+  --color-surface-secondary: #171717;  /* Sidebar / toolbar / secondary surfaces */
+  --color-surface: #181818;            /* Workflow nodes / cards / panels */
+  --color-surface-elevated: #202020;   /* Elevated panels (drawer, config, modals) */
+  --color-surface-hover: #262626;      /* Hover states */
+  --color-border: #262626;             /* Subtle low-contrast structural borders */
+  --color-border-subtle: #1C1C1C;      /* Internal subtle dividers */
+  --color-border-hover: #383838;       /* Hover borders */
+
+  /* Neutral Soft Text */
+  --color-text-primary: #EEEEEE;
+  --color-text-secondary: #9E9E9E;
+  --color-text-muted: #666666;
+
+  /* Inputs and controls */
+  --color-input-bg: #121212;
+  --color-input-border: #2A2A2A;
+
+  /* Node styling tokens */
+  --color-node-bg: #161616;
+  --color-node-border: #262626;
+  --color-node-icon-bg: #1F1F1F;
+  --color-node-icon-border: #2E2E2E;
+
+  /* Handles */
+  --color-handle-bg: #121212;
+  --color-handle-border: #666666;
+  --color-handle-hover-border: #FFFFFF;
+  --color-handle-hover-bg: #262626;
+
+  /* Canvas grid dots */
+  --color-grid-dots: rgba(255, 255, 255, 0.05);
+
+  /* Edges and handles */
+  --color-edge: #404040;
+  --color-edge-selected: #FFFFFF;
+  --color-edge-hover: #666666;
+
+  /* Semantic Node Category Accents */
+  --color-trigger: #f59e0b;
+  --color-trigger-surface: rgba(245, 158, 11, 0.08);
+  --color-trigger-border: rgba(245, 158, 11, 0.25);
+  --color-trigger-text: #fbbf24;
+
+  --color-action: #3b82f6;
+  --color-action-surface: rgba(59, 130, 246, 0.08);
+  --color-action-border: rgba(59, 130, 246, 0.25);
+  --color-action-text: #60a5fa;
+
+  --color-logic: #8b5cf6;
+  --color-logic-surface: rgba(139, 92, 246, 0.08);
+  --color-logic-border: rgba(139, 92, 246, 0.25);
+  --color-logic-text: #a78bfa;
+
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-danger: #f87171;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+}
+
+/* =========================================================================
+   LIGHT THEME: Clean, Crisp, High-Contrast Light Mode
+   #F8F9FA background, #FFFFFF cards, #E5E7EB borders, #111827 text.
+   ========================================================================= */
+.light,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-bg: #F8F9FA;
+  --color-surface-secondary: #FFFFFF;
+  --color-surface: #FFFFFF;
+  --color-surface-elevated: #FFFFFF;
+  --color-surface-hover: #F3F4F6;
+  --color-border: #E5E7EB;
+  --color-border-subtle: #F3F4F6;
+  --color-border-hover: #D1D5DB;
+
+  --color-text-primary: #111827;
+  --color-text-secondary: #4B5563;
+  --color-text-muted: #6B7280;
+
+  --color-input-bg: #F9FAFB;
+  --color-input-border: #D1D5DB;
+
+  --color-node-bg: #FFFFFF;
+  --color-node-border: #E5E7EB;
+  --color-node-icon-bg: #F3F4F6;
+  --color-node-icon-border: #E5E7EB;
+
+  --color-handle-bg: #FFFFFF;
+  --color-handle-border: #9CA3AF;
+  --color-handle-hover-border: #111827;
+  --color-handle-hover-bg: #F3F4F6;
+
+  --color-grid-dots: rgba(0, 0, 0, 0.1);
+  --color-edge: #9CA3AF;
+  --color-edge-selected: #FF7306;
+  --color-edge-hover: #4B5563;
+
+  --color-trigger: #d97706;
+  --color-trigger-surface: #fffbeb;
+  --color-trigger-border: #fde68a;
+  --color-trigger-text: #b45309;
+
+  --color-action: #2563eb;
+  --color-action-surface: #eff6ff;
+  --color-action-border: #bfdbfe;
+  --color-action-text: #1d4ed8;
+
+  --color-logic: #7c3aed;
+  --color-logic-surface: #f5f3ff;
+  --color-logic-border: #ddd6fe;
+  --color-logic-text: #6d28d9;
+
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-danger: #ef4444;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+}
+
+/* Explicit Dark Mode alias matching :root */
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg: #0F0F0F;
+  --color-surface-secondary: #171717;
+  --color-surface: #181818;
+  --color-surface-elevated: #202020;
+  --color-surface-hover: #262626;
+  --color-border: #262626;
+  --color-border-subtle: #1C1C1C;
+  --color-border-hover: #383838;
+
+  --color-text-primary: #EEEEEE;
+  --color-text-secondary: #9E9E9E;
+  --color-text-muted: #666666;
+
+  --color-input-bg: #121212;
+  --color-input-border: #2A2A2A;
+
+  --color-node-bg: #161616;
+  --color-node-border: #262626;
+  --color-node-icon-bg: #1F1F1F;
+  --color-node-icon-border: #2E2E2E;
+
+  --color-handle-bg: #121212;
+  --color-handle-border: #666666;
+  --color-handle-hover-border: #FFFFFF;
+  --color-handle-hover-bg: #262626;
+
+  --color-grid-dots: rgba(255, 255, 255, 0.05);
+  --color-edge: #404040;
+  --color-edge-selected: #FFFFFF;
+  --color-edge-hover: #666666;
+
+  --color-trigger: #f59e0b;
+  --color-trigger-surface: rgba(245, 158, 11, 0.08);
+  --color-trigger-border: rgba(245, 158, 11, 0.25);
+  --color-trigger-text: #fbbf24;
+
+  --color-action: #3b82f6;
+  --color-action-surface: rgba(59, 130, 246, 0.08);
+  --color-action-border: rgba(59, 130, 246, 0.25);
+  --color-action-text: #60a5fa;
+
+  --color-logic: #8b5cf6;
+  --color-logic-surface: rgba(139, 92, 246, 0.08);
+  --color-logic-border: rgba(139, 92, 246, 0.25);
+  --color-logic-text: #a78bfa;
+
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-danger: #f87171;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* Global button and input styling consistency */
+button, input, select, textarea {
+  font-family: inherit;
+}
+
+/* Sidebar Nav Item outline and focus reset to eliminate stroke glitch */
+nav button {
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+nav button:focus,
+nav button:focus-visible,
+nav button:active {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+::selection {
+  background-color: rgba(255, 115, 6, 0.25);
+  color: inherit;
+}
+
+/* =========================================================================
+   AUTOMATED LIGHT MODE OVERRIDES FOR LEGACY HARDCODED DARK UTILITIES
+   Ensures zero residual dark patches, dark text on dark bg, or illegibility
+   ========================================================================= */
+.light .bg-\[\#0F0F0F\],
+[data-theme="light"] .bg-\[\#0F0F0F\],
+.light .bg-\[\#0D0D0D\],
+[data-theme="light"] .bg-\[\#0D0D0D\],
+.light .bg-\[\#0A0A0A\],
+[data-theme="light"] .bg-\[\#0A0A0A\] {
+  background-color: var(--color-bg) !important;
+}
+
+.light .bg-\[\#161616\],
+[data-theme="light"] .bg-\[\#161616\],
+.light .bg-\[\#171717\],
+[data-theme="light"] .bg-\[\#171717\],
+.light .bg-\[\#181818\],
+[data-theme="light"] .bg-\[\#181818\] {
+  background-color: var(--color-surface) !important;
+}
+
+.light .bg-\[\#121212\],
+[data-theme="light"] .bg-\[\#121212\],
+.light .bg-\[\#141414\],
+[data-theme="light"] .bg-\[\#141414\],
+.light .bg-\[\#151515\],
+[data-theme="light"] .bg-\[\#151515\],
+.light .bg-\[\#111111\],
+[data-theme="light"] .bg-\[\#111111\],
+.light .bg-\[\#131313\],
+[data-theme="light"] .bg-\[\#131313\],
+.light .bg-\[\#101010\],
+[data-theme="light"] .bg-\[\#101010\] {
+  background-color: var(--color-surface) !important;
+}
+
+.light .bg-\[\#191919\],
+[data-theme="light"] .bg-\[\#191919\],
+.light .bg-\[\#1A1A1A\],
+[data-theme="light"] .bg-\[\#1A1A1A\],
+.light .bg-\[\#1B1B1B\],
+[data-theme="light"] .bg-\[\#1B1B1B\],
+.light .bg-\[\#1C1C1C\],
+[data-theme="light"] .bg-\[\#1C1C1C\],
+.light .bg-\[\#1D1D1D\],
+[data-theme="light"] .bg-\[\#1D1D1D\],
+.light .bg-\[\#1E1E1E\],
+[data-theme="light"] .bg-\[\#1E1E1E\],
+.light .bg-\[\#1F1F1F\],
+[data-theme="light"] .bg-\[\#1F1F1F\],
+.light .bg-\[\#202020\],
+[data-theme="light"] .bg-\[\#202020\],
+.light .bg-\[\#222222\],
+[data-theme="light"] .bg-\[\#222222\],
+.light .bg-\[\#242424\],
+[data-theme="light"] .bg-\[\#242424\],
+.light .bg-\[\#252525\],
+[data-theme="light"] .bg-\[\#252525\],
+.light .bg-\[\#262626\],
+[data-theme="light"] .bg-\[\#262626\],
+.light .bg-\[\#282828\],
+[data-theme="light"] .bg-\[\#282828\],
+.light .bg-\[\#2A2A2A\],
+[data-theme="light"] .bg-\[\#2A2A2A\],
+.light .bg-\[\#2E2E2E\],
+[data-theme="light"] .bg-\[\#2E2E2E\],
+.light .bg-\[\#333333\],
+[data-theme="light"] .bg-\[\#333333\] {
+  background-color: var(--color-surface-hover) !important;
+}
+
+/* Semi-transparent floating toolbars in light mode */
+.light .bg-\[\#161616\]\/90,
+[data-theme="light"] .bg-\[\#161616\]\/90,
+.light .bg-\[\#161616\]\/95,
+[data-theme="light"] .bg-\[\#161616\]\/95 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+/* Alert boxes in light mode */
+.light .bg-\[\#171413\],
+[data-theme="light"] .bg-\[\#171413\],
+.light .bg-\[\#1F1916\],
+[data-theme="light"] .bg-\[\#1F1916\] {
+  background-color: #FEF3C7 !important;
+  border-color: #FDE68A !important;
+}
+
+.light .border-\[\#242424\],
+[data-theme="light"] .border-\[\#242424\],
+.light .border-\[\#262626\],
+[data-theme="light"] .border-\[\#262626\],
+.light .border-\[\#222222\],
+[data-theme="light"] .border-\[\#222222\],
+.light .border-\[\#2A2A2A\],
+[data-theme="light"] .border-\[\#2A2A2A\],
+.light .border-\[\#2B2B2B\],
+[data-theme="light"] .border-\[\#2B2B2B\],
+.light .border-\[\#2C2C2C\],
+[data-theme="light"] .border-\[\#2C2C2C\],
+.light .border-\[\#2D2D2D\],
+[data-theme="light"] .border-\[\#2D2D2D\],
+.light .border-\[\#2E2E2E\],
+[data-theme="light"] .border-\[\#2E2E2E\],
+.light .border-\[\#1A1A1A\],
+[data-theme="light"] .border-\[\#1A1A1A\],
+.light .border-\[\#1C1C1C\],
+[data-theme="light"] .border-\[\#1C1C1C\],
+.light .border-\[\#1E1E1E\],
+[data-theme="light"] .border-\[\#1E1E1E\],
+.light .border-\[\#1F1F1F\],
+[data-theme="light"] .border-\[\#1F1F1F\],
+.light .border-\[\#303030\],
+[data-theme="light"] .border-\[\#303030\],
+.light .border-\[\#333333\],
+[data-theme="light"] .border-\[\#333333\],
+.light .border-\[\#383838\],
+[data-theme="light"] .border-\[\#383838\],
+.light .border-\[\#3A3A3A\],
+[data-theme="light"] .border-\[\#3A3A3A\] {
+  border-color: var(--color-border) !important;
+}
+
+.light .text-white,
+[data-theme="light"] .text-white {
+  color: var(--color-text-primary) !important;
+}
+
+.light .text-\[\#EEEEEE\],
+[data-theme="light"] .text-\[\#EEEEEE\],
+.light .text-\[\#E5E5E5\],
+[data-theme="light"] .text-\[\#E5E5E5\],
+.light .text-\[\#E0E0E0\],
+[data-theme="light"] .text-\[\#E0E0E0\],
+.light .text-\[\#E1E1E1\],
+[data-theme="light"] .text-\[\#E1E1E1\],
+.light .text-\[\#D4D4D4\],
+[data-theme="light"] .text-\[\#D4D4D4\],
+.light .text-\[\#CCCCCC\],
+[data-theme="light"] .text-\[\#CCCCCC\],
+.light .text-\[\#BBBBBB\],
+[data-theme="light"] .text-\[\#BBBBBB\] {
+  color: var(--color-text-primary) !important;
+}
+
+.light .text-\[\#A3A3A3\],
+[data-theme="light"] .text-\[\#A3A3A3\],
+.light .text-\[\#A0A0A0\],
+[data-theme="light"] .text-\[\#A0A0A0\],
+.light .text-\[\#9E9E9E\],
+[data-theme="light"] .text-\[\#9E9E9E\],
+.light .text-\[\#888888\],
+[data-theme="light"] .text-\[\#888888\],
+.light .text-\[\#8E8E8E\],
+[data-theme="light"] .text-\[\#8E8E8E\] {
+  color: var(--color-text-secondary) !important;
+}
+
+.light .text-\[\#737373\],
+[data-theme="light"] .text-\[\#737373\],
+.light .text-\[\#777777\],
+[data-theme="light"] .text-\[\#777777\],
+.light .text-\[\#7A7A7A\],
+[data-theme="light"] .text-\[\#7A7A7A\],
+.light .text-\[\#6B6B6B\],
+[data-theme="light"] .text-\[\#6B6B6B\],
+.light .text-\[\#666666\],
+[data-theme="light"] .text-\[\#666666\],
+.light .text-\[\#555555\],
+[data-theme="light"] .text-\[\#555555\] {
+  color: var(--color-text-muted) !important;
+}
+
+/* Light mode form controls */
+.light select,
+[data-theme="light"] select,
+.light input:not([type="checkbox"]):not([type="radio"]),
+[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]),
+.light textarea,
+[data-theme="light"] textarea {
+  background-color: var(--color-input-bg) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-input-border) !important;
+}
+
+.light option,
+[data-theme="light"] option {
+  background-color: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* Variable Chips in Editors */
+.vulp-var-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #202020;
+  border: 1px solid #383838;
+  border-radius: 9999px;
+  padding: 1.5px 8px;
+  margin: 0 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #ffffff;
+  user-select: none;
+  vertical-align: middle;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  line-height: 1.4;
+}
+
+.vulp-var-chip .chip-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background-color: #ff7306;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.vulp-var-chip .chip-step {
+  color: #a3a3a3;
+  font-size: 10.5px;
+  font-weight: 500;
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vulp-var-chip .chip-arrow {
+  color: #666666;
+  font-size: 10px;
+  margin: 0 1px;
+  user-select: none;
+}
+
+.vulp-var-chip .chip-label {
+  color: #ffffff;
+  font-weight: 600;
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Light mode rich text editor & variable chips */
+.light .vulp-var-chip,
+[data-theme="light"] .vulp-var-chip {
+  background-color: #f3f4f6 !important;
+  border-color: #e5e7eb !important;
+  color: #111827 !important;
+}
+
+.light .vulp-var-chip .chip-step,
+[data-theme="light"] .vulp-var-chip .chip-step {
+  color: #6b7280 !important;
+}
+
+.light .vulp-var-chip .chip-arrow,
+[data-theme="light"] .vulp-var-chip .chip-arrow {
+  color: #9ca3af !important;
+}
+
+.light .vulp-var-chip .chip-label,
+[data-theme="light"] .vulp-var-chip .chip-label {
+  color: #111827 !important;
+}
+
+/* Inline Variable Autocomplete Menu Theme Overrides */
+.vulp-autocomplete-menu {
+  box-sizing: border-box;
+}
+
+.light .vulp-autocomplete-menu,
+[data-theme="light"] .vulp-autocomplete-menu {
+  background-color: #ffffff !important;
+  border-color: #e5e7eb !important;
+  color: #111827 !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.06) !important;
+}
+
+.dark .vulp-autocomplete-menu,
+[data-theme="dark"] .vulp-autocomplete-menu {
+  background-color: #171717 !important;
+  border-color: #2e2e2e !important;
+  color: #ededed !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5) !important;
+}
+
+.light .rich-email-content,
+[data-theme="light"] .rich-email-content,
+.light .rich-email-content h1,
+[data-theme="light"] .rich-email-content h1,
+.light .rich-email-content h2,
+[data-theme="light"] .rich-email-content h2,
+.light .rich-email-content h3,
+[data-theme="light"] .rich-email-content h3 {
+  color: var(--color-text-primary) !important;
+}
+
+/* =========================================================================
+   React Flow Theme Integrations & Overrides
+   ========================================================================= */
+
+/* Dark React Flow */
+:root .react-flow,
+.dark .react-flow,
+[data-theme="dark"] .react-flow {
+  --xy-background-color: var(--color-bg);
+  --xy-background-pattern-dots-color-default: var(--color-grid-dots);
+  --xy-edge-stroke-default: var(--color-edge);
+  --xy-edge-stroke-selected-default: var(--color-edge-selected);
+  --xy-connectionline-stroke-default: #888888;
+  --xy-minimap-background-color-default: var(--color-surface-secondary);
+  --xy-minimap-mask-background-color-default: rgba(0, 0, 0, 0.75);
+  --xy-minimap-node-background-color-default: var(--color-surface-elevated);
+  --xy-controls-button-background-color-default: var(--color-surface-secondary);
+  --xy-controls-button-background-color-hover-default: var(--color-surface-hover);
+  --xy-controls-button-color-default: var(--color-text-secondary);
+  --xy-controls-button-color-hover-default: var(--color-text-primary);
+  --xy-controls-button-border-color-default: var(--color-border);
+  --xy-node-background-color-default: var(--color-node-bg);
+  --xy-node-border-default: 1px solid var(--color-node-border);
+  --xy-node-color-default: var(--color-text-primary);
+  --xy-handle-background-color-default: var(--color-handle-bg);
+  --xy-handle-border-color-default: var(--color-handle-border);
+  --xy-selection-background-color-default: rgba(255, 255, 255, 0.04);
+  --xy-selection-border-default: 1px dotted rgba(255, 255, 255, 0.4);
+}
+
+/* Light React Flow */
+.light .react-flow,
+[data-theme="light"] .react-flow {
+  --xy-background-color: var(--color-bg);
+  --xy-background-pattern-dots-color-default: var(--color-grid-dots);
+  --xy-edge-stroke-default: var(--color-edge);
+  --xy-edge-stroke-selected-default: var(--color-edge-selected);
+  --xy-connectionline-stroke-default: #6B7280;
+  --xy-minimap-background-color-default: #F3F4F6;
+  --xy-minimap-mask-background-color-default: rgba(255, 255, 255, 0.65);
+  --xy-minimap-node-background-color-default: #D1D5DB;
+  --xy-controls-button-background-color-default: #FFFFFF;
+  --xy-controls-button-background-color-hover-default: #F3F4F6;
+  --xy-controls-button-color-default: #4B5563;
+  --xy-controls-button-color-hover-default: #111827;
+  --xy-controls-button-border-color-default: #E5E7EB;
+  --xy-node-background-color-default: #FFFFFF;
+  --xy-node-border-default: 1px solid #E5E7EB;
+  --xy-node-color-default: #111827;
+  --xy-handle-background-color-default: #FFFFFF;
+  --xy-handle-border-color-default: #9CA3AF;
+  --xy-selection-background-color-default: rgba(37, 99, 235, 0.06);
+  --xy-selection-border-default: 1px dotted rgba(37, 99, 235, 0.5);
+}
+
+.react-flow,
+.react-flow__pane,
+.react-flow__viewport,
+.react-flow__renderer {
+  background-color: var(--color-bg) !important;
+}
+
+.react-flow__background {
+  background-color: var(--color-bg) !important;
+}
+
+.react-flow__background-pattern.dots {
+  fill: var(--color-grid-dots) !important;
+}
+
+/* Controls container */
+.react-flow__controls {
+  background-color: var(--color-surface-secondary) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
+  overflow: hidden !important;
+}
+
+.react-flow__controls-button {
+  background-color: var(--color-surface-secondary) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  color: var(--color-text-secondary) !important;
+  fill: var(--color-text-secondary) !important;
+  transition: background-color 0.15s ease, color 0.15s ease !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__controls-button:hover {
+  background-color: var(--color-surface-hover) !important;
+  color: var(--color-text-primary) !important;
+  fill: var(--color-text-primary) !important;
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor !important;
+}
+
+/* MiniMap container */
+.react-flow__minimap {
+  background-color: var(--color-surface-secondary) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15) !important;
+  overflow: hidden !important;
+}
+
+.react-flow__minimap-background {
+  fill: var(--color-surface-secondary) !important;
+}
+
+.react-flow__minimap-mask {
+  fill: var(--color-surface-elevated) !important;
+  stroke: var(--color-border) !important;
+  stroke-width: 1px !important;
+}
+
+/* =========================================================================
+   MULTI-DIRECTIONAL NODE HANDLES (TOP, RIGHT, BOTTOM, LEFT)
+   ========================================================================= */
+
+@property --handle-scale {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+
+.react-flow__handle {
+  width: 10px !important;
+  height: 10px !important;
+  background-color: var(--color-handle-bg) !important;
+  border: 2px solid var(--color-handle-border) !important;
+  border-radius: 9999px !important;
+  transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms ease, box-shadow 150ms ease !important;
+  z-index: 25 !important;
+  box-sizing: border-box !important;
+  --handle-scale: 1;
+}
+
+/* Primary handles in idle state: subtle rest opacity */
+.workflow-node .handle-primary {
+  opacity: 0.4;
+  --handle-scale: 0.9;
+}
+
+/* Primary handles prominent on node hover, focus, or when selected */
+.workflow-node:hover .handle-primary,
+.workflow-node.selected .handle-primary,
+.workflow-node:focus-within .handle-primary {
+  opacity: 0.95;
+  --handle-scale: 1;
+}
+
+/* Additional handles (top, bottom, extra): hidden by default in idle state */
+.handle-additional.handle-hidden {
+  opacity: 0 !important;
+  --handle-scale: 0.7 !important;
+  pointer-events: none !important;
+}
+
+/* Additional handles when contextually revealed (active & connected, wire attached, or dragging approach) */
+.handle-additional.handle-revealed {
+  opacity: 0.9 !important;
+  --handle-scale: 1 !important;
+  pointer-events: auto !important;
+}
+
+/* Specific cardinal edge positioning & geometric centering */
+.react-flow__handle-top {
+  top: 0 !important;
+  left: 50% !important;
+  bottom: auto !important;
+  right: auto !important;
+  transform: translateX(-50%) translateY(-50%) scale(var(--handle-scale, 1)) !important;
+}
+
+.react-flow__handle-bottom {
+  bottom: 0 !important;
+  left: 50% !important;
+  top: auto !important;
+  right: auto !important;
+  transform: translateX(-50%) translateY(50%) scale(var(--handle-scale, 1)) !important;
+}
+
+.react-flow__handle-left {
+  left: 0 !important;
+  top: 50%;
+  right: auto !important;
+  bottom: auto !important;
+  transform: translateX(-50%) translateY(-50%) scale(var(--handle-scale, 1)) !important;
+}
+
+.react-flow__handle-right {
+  right: 0 !important;
+  top: 50%;
+  left: auto !important;
+  bottom: auto !important;
+  transform: translateX(50%) translateY(-50%) scale(var(--handle-scale, 1)) !important;
+}
+
+/* Handle hover interaction */
+.react-flow__handle:hover,
+.handle-additional.handle-revealed:hover {
+  opacity: 1 !important;
+  border-color: var(--color-handle-hover-border) !important;
+  background-color: var(--color-handle-hover-bg) !important;
+  box-shadow: 0 0 0 3px rgba(255, 115, 6, 0.25) !important;
+  --handle-scale: 1.25 !important;
+}
+
+/* Highlight visible connection handles when actively dragging a connection wire */
+.is-connecting .handle-primary,
+.is-connecting .handle-revealed {
+  opacity: 0.9 !important;
+  border-color: var(--color-handle-hover-border) !important;
+  --handle-scale: 1.1 !important;
+}
+
+/* Inactive additional handles stay strictly hidden when dragging a wire */
+.is-connecting .handle-additional.handle-hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  --handle-scale: 0.7 !important;
+}
+
+/* Valid drop target when dragging a wire */
+.react-flow__handle.react-flow__handle-valid,
+.is-connecting .handle-primary:hover,
+.is-connecting .handle-revealed:hover {
+  border-color: #10B981 !important;
+  background-color: #10B981 !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.6) !important;
+  --handle-scale: 1.4 !important;
+  opacity: 1 !important;
+}
+
+/* Dynamic line currently being dragged */
+.react-flow__connection-path {
+  stroke: var(--color-text-primary) !important;
+  stroke-width: 2px !important;
+  stroke-dasharray: 4 4;
+}
+
+/* Edges */
+.react-flow__edge-path {
+  stroke: var(--color-edge) !important;
+  stroke-width: 1.75 !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus .react-flow__edge-path {
+  stroke: var(--color-edge-selected) !important;
+  stroke-width: 2 !important;
+}
+
+/* Custom Micro-Animations */
+@keyframes wireFlow {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-wire-flow {
+  stroke-dasharray: 6 6;
+  animation: wireFlow 1s linear infinite;
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0.94;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-page-enter {
+  animation: pageEnter 90ms ease-out forwards;
+  will-change: opacity;
+}
+
+/* Sleek native-feel scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* Accessibility: Respect Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  
+  .animate-wire-flow {
+    animation: none !important;
+    stroke-dasharray: none !important;
+  }
+}
