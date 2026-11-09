@@ -131,11 +131,18 @@ export function GoogleFormsTriggerConfig({
     try {
       const details = await api.getGoogleForm(id, credentialId);
       setSelectedFormDetails(details);
+      const updates: Record<string, any> = {};
       if (details.title && details.title !== formTitle) {
-        onParamChange('formTitle', details.title);
+        updates.formTitle = details.title;
       }
       if (details.responderUri) {
-        onParamChange('responderUri', details.responderUri);
+        updates.responderUri = details.responderUri;
+      }
+      if (Array.isArray(details.questions) && details.questions.length > 0) {
+        updates.questions = details.questions;
+      }
+      if (Object.keys(updates).length > 0) {
+        onParamChange(updates);
       }
     } catch (err: any) {
       console.warn('Could not fetch full form details:', err);
@@ -188,6 +195,7 @@ export function GoogleFormsTriggerConfig({
         formId: details.id,
         formTitle: details.title,
         responderUri: details.responderUri,
+        questions: details.questions,
       });
 
       // Automatically run trigger test to discover schema
@@ -288,8 +296,31 @@ export function GoogleFormsTriggerConfig({
   const discoveredFields = useMemo(() => {
     const payload = testResult?.sample || params.samplePayload;
     if (!payload || typeof payload !== 'object') return [];
-    return Object.keys(payload).filter((k) => !['answers', 'formId', 'formTitle'].includes(k));
-  }, [testResult, params.samplePayload]);
+    const rawKeys = Object.keys(payload).filter((k) => !['answers', 'formId', 'formTitle'].includes(k));
+
+    // Get known question titles if available
+    const questionTitles: string[] = Array.isArray(params.questions)
+      ? (params.questions as any[]).map((q) => (q?.title ? String(q.title).trim() : '')).filter(Boolean)
+      : [];
+
+    return rawKeys.filter((key) => {
+      // Always include authentic metadata
+      if (['responseId', 'submittedAt', 'respondentEmail'].includes(key)) return true;
+      // Filter out stale demo fallbacks if they are not questions in this form
+      if (['name', 'email', 'leadId', 'phone', 'score', 'source'].includes(key)) {
+        return questionTitles.includes(key);
+      }
+      // If we know the form's questions, only show real question titles
+      if (questionTitles.length > 0) {
+        return questionTitles.includes(key);
+      }
+      // Deduplicate: filter out lowercased/slugified key if a clean titled version exists
+      const hasProperTitle = rawKeys.some(
+        (other) => other !== key && other.toLowerCase().replace(/[^a-z0-9]/g, '') === key
+      );
+      return !hasProperTitle;
+    });
+  }, [testResult, params.samplePayload, params.questions]);
 
   return (
     <div className="space-y-5 text-xs font-sans">

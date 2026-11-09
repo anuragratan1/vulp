@@ -112,7 +112,8 @@ export const SEMANTIC_ALIAS_FAMILIES: Record<string, string[]> = {
     'email', 'email_address', 'emailaddress', 'mail', 'e_mail', 'user_email',
     'useremail', 'customer_email', 'customeremail', 'contact_email',
     'contactemail', 'recipient_email', 'recipientemail', 'to_email', 'toemail',
-    'sender_email', 'senderemail', 'from_email', 'fromemail', 'work_email'
+    'sender_email', 'senderemail', 'from_email', 'fromemail', 'work_email',
+    'respondent_email', 'respondentemail', 'respondent'
   ],
   phone: [
     'phone', 'telephone', 'mobile', 'cell', 'phone_number', 'phonenumber',
@@ -135,7 +136,8 @@ export const SEMANTIC_ALIAS_FAMILIES: Record<string, string[]> = {
     'timestamp', 'datetime', 'date_time', 'time', 'due_date', 'duedate',
     'sent_at', 'sentat', 'received_at', 'receivedat', 'updated_at',
     'updatedat', 'event_date', 'eventdate', 'submission_date', 'submit_date',
-    'start_date', 'end_date'
+    'start_date', 'end_date', 'submitted_at', 'submittedat', 'submission_time',
+    'submissiontime', 'submission_timestamp', 'submittimestamp'
   ],
   amount: [
     'amount', 'price', 'cost', 'total', 'sum', 'value', 'fee', 'rate',

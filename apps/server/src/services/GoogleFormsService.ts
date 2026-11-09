@@ -292,18 +292,7 @@ export class GoogleFormsService {
       }
 
       answersMap[q.title] = val;
-
-      const normKey = normalizeQuestionKey(q.title);
-      topLevelProps[normKey] = val;
-      // Also provide exact question title key if different
-      if (topLevelProps[q.title] === undefined) {
-        topLevelProps[q.title] = val;
-      }
-    }
-
-    // Ensure standard keys exist if matched
-    if (respondentEmail && !topLevelProps.email) {
-      topLevelProps.email = respondentEmail;
+      topLevelProps[q.title] = val;
     }
 
     return {
@@ -454,26 +443,15 @@ export class GoogleFormsService {
       const normKey = normalizeQuestionKey(q.title);
       const synthVal = synthesizeQuestionValue(normKey, q.title);
       answersMap[q.title] = synthVal;
-      topLevelProps[normKey] = synthVal;
-      if (topLevelProps[q.title] === undefined) {
-        topLevelProps[q.title] = synthVal;
-      }
+      topLevelProps[q.title] = synthVal;
     }
-
-    // Ensure standard keys exist
-    if (!topLevelProps.leadId) topLevelProps.leadId = 'LEAD-101';
-    if (!topLevelProps.name) topLevelProps.name = 'Sarah Connor';
-    if (!topLevelProps.email) topLevelProps.email = 'sarah.c@sky.net';
-    if (!topLevelProps.phone) topLevelProps.phone = '+1-555-0199';
-    if (!topLevelProps.score) topLevelProps.score = 95;
-    if (!topLevelProps.source) topLevelProps.source = 'Website Intake';
 
     const syntheticSample: Record<string, any> = {
       responseId: `sample_resp_${Date.now()}`,
       formId: form.id,
       formTitle: form.title,
       submittedAt: new Date().toISOString(),
-      respondentEmail: 'sarah.c@sky.net',
+      respondentEmail: 'respondent@example.com',
       ...topLevelProps,
       answers: answersMap,
     };

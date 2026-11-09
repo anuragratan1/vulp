@@ -67,36 +67,36 @@ export class GoogleFormsTriggerNode extends TriggerNode {
       }
     }
 
-    // 3. Fallback clean default response reflecting common form fields
+    // 3. Fallback clean response reflecting real form fields if present
     const formTitle =
       typeof params.formTitle === 'string' && params.formTitle.trim()
         ? params.formTitle.trim()
-        : 'Customer Intake Form';
+        : 'Google Form';
     const formId =
       typeof params.formId === 'string' && params.formId.trim()
         ? params.formId.trim()
-        : 'form_sample_default';
+        : 'form_default';
+
+    const answers: Record<string, any> = {};
+    const topLevel: Record<string, any> = {};
+    if (Array.isArray(params.questions)) {
+      for (const q of params.questions as any[]) {
+        if (q && q.title) {
+          const title = String(q.title).trim();
+          answers[title] = `Sample ${title}`;
+          topLevel[title] = `Sample ${title}`;
+        }
+      }
+    }
 
     return {
       responseId: 'resp_sample_default',
       formId,
       formTitle,
       submittedAt: new Date().toISOString(),
-      respondentEmail: 'sarah.c@sky.net',
-      leadId: 'LEAD-101',
-      name: 'Sarah Connor',
-      email: 'sarah.c@sky.net',
-      phone: '+1-555-0199',
-      score: 95,
-      source: 'Google Form',
-      answers: {
-        'Lead ID': 'LEAD-101',
-        Name: 'Sarah Connor',
-        Email: 'sarah.c@sky.net',
-        Phone: '+1-555-0199',
-        Score: 95,
-        Source: 'Google Form',
-      },
+      respondentEmail: 'respondent@example.com',
+      ...topLevel,
+      answers,
     };
   }
 }

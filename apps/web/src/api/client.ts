@@ -962,6 +962,27 @@ export const api = {
     return data.headers || [];
   },
 
+  async addGoogleSheetColumns(
+    spreadsheetId: string,
+    sheetName: string,
+    credentialId: string,
+    columns: string[]
+  ): Promise<string[]> {
+    const res = await request(
+      `/api/integrations/google/spreadsheets/${encodeURIComponent(spreadsheetId)}/columns`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentialId, sheetName, columns }),
+      }
+    );
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to add column headers');
+    }
+    return data.headers || columns;
+  },
+
   async getGoogleCalendars(credentialId: string): Promise<Array<{ id: string; summary: string }>> {
     const res = await request(
       `/api/integrations/google/calendars?credentialId=${encodeURIComponent(credentialId)}`

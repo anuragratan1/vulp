@@ -846,8 +846,6 @@ googleApp.post('/api/integrations/google/forms/:id/test', async (c) => {
           val = textVals.length > 1 ? textVals : textVals[0] ?? '';
         }
         answersMap[q.title] = val;
-        const normKey = q.title.toLowerCase().replace(/[^a-z0-9]/g, '');
-        topLevelProps[normKey || 'field'] = val;
         topLevelProps[q.title] = val;
       }
 
@@ -867,30 +865,21 @@ googleApp.post('/api/integrations/google/forms/:id/test', async (c) => {
 
       for (const q of questions) {
         const titleLower = q.title.toLowerCase();
-        let val: any = 'Sample Response';
-        if (titleLower.includes('name')) val = 'Sarah Connor';
-        else if (titleLower.includes('email')) val = 'sarah.c@sky.net';
-        else if (titleLower.includes('phone') || titleLower.includes('mobile')) val = '+1-555-0199';
-        else if (titleLower.includes('id')) val = 'LEAD-101';
-        else if (titleLower.includes('score')) val = 95;
-        else if (titleLower.includes('source')) val = 'Website Intake';
+        let val: any = `Sample ${q.title}`;
+        if (titleLower.includes('date')) val = new Date().toISOString().slice(0, 10);
+        else if (titleLower.includes('number') || titleLower.includes('amount') || titleLower.includes('count')) val = 1;
+        else if (titleLower.includes('email')) val = 'user@example.com';
 
         answersMap[q.title] = val;
-        const normKey = q.title.toLowerCase().replace(/[^a-z0-9]/g, '');
-        topLevelProps[normKey || 'field'] = val;
         topLevelProps[q.title] = val;
       }
-
-      if (!topLevelProps.name) topLevelProps.name = 'Sarah Connor';
-      if (!topLevelProps.email) topLevelProps.email = 'sarah.c@sky.net';
-      if (!topLevelProps.leadId) topLevelProps.leadId = 'LEAD-101';
 
       sample = {
         responseId: `sample_resp_${Date.now()}`,
         formId: formDetails.id,
         formTitle: formDetails.title,
         submittedAt: new Date().toISOString(),
-        respondentEmail: 'sarah.c@sky.net',
+        respondentEmail: 'respondent@example.com',
         ...topLevelProps,
         answers: answersMap,
       };

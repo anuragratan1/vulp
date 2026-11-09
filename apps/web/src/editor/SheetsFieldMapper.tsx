@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Info,
+  ExternalLink,
 } from 'lucide-react';
 import { CanvasNode, CanvasEdge } from './graphConverter.js';
 import { NodeRunRecord, api } from '../api/client.js';
@@ -59,6 +60,7 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
   const [customInputValue, setCustomInputValue] = useState('');
   const [customRawCol, setCustomRawCol] = useState<string | null>(null);
   const [customRawValue, setCustomRawValue] = useState('');
+  const [isWritingHeaders, setIsWritingHeaders] = useState(false);
 
   // Check if upstream webhook node exists and whether it has received sample data
   const upstreamWebhookNode = useMemo(() => {
@@ -78,7 +80,9 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
 
   const hasFormsSample = Boolean(
     upstreamFormsNode?.data?.params?.samplePayload ||
-      upstreamFormsNode?.data?.params?.lastPayload
+      upstreamFormsNode?.data?.params?.lastPayload ||
+      (Array.isArray(upstreamFormsNode?.data?.params?.questions) &&
+        upstreamFormsNode?.data?.params?.questions.length > 0)
   );
 
   // 1. Normalize current values into a key-value dictionary
@@ -135,16 +139,34 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
     return flat;
   }, [currentNodeId, allNodes, edges, nodeRuns]);
 
+  // Derive real upstream question/field names
+  const realUpstreamFieldNames = useMemo<string[]>(() => {
+    const nonSystem = availableSources.filter((s) => s.sourceCategory !== 'system');
+    const names = new Set<string>();
+    for (const s of nonSystem) {
+      const key = s.path.includes('.') ? s.path.split('.').pop()! : s.path;
+      if (
+        key &&
+        !['responseId', 'formId', 'submittedAt', 'timestamp', 'answers', 'body', 'headers', 'query', 'payload'].includes(
+          key
+        )
+      ) {
+        names.add(s.path.includes('.') ? s.path : s.label || key);
+      }
+    }
+    return Array.from(names);
+  }, [availableSources]);
+
+  const upstreamSourceName = useMemo((): string => {
+    const trigger = allNodes.find((n) => n.data?.category === 'trigger');
+    const raw = trigger?.data?.label ?? trigger?.data?.name;
+    return typeof raw === 'string' && raw.trim() ? raw : 'Trigger';
+  }, [allNodes]);
+
   // 4. Fetch sheet headers dynamically when spreadsheet and sheetName change
   const fetchHeaders = async () => {
     if (!spreadsheetId || !credentialId || spreadsheetId.includes('{{')) {
-      // If no remote sheet selected, use current values keys or sensible defaults
-      const keys = Object.keys(currentMap);
-      if (keys.length > 0) {
-        setHeaders(keys);
-      } else {
-        setHeaders(['Name', 'Email', 'Company', 'Date']);
-      }
+      setHeaders([]);
       return;
     }
 
@@ -155,15 +177,13 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
         sheetName || 'Sheet1',
         credentialId
       );
-      if (fetched && fetched.length > 0) {
+      if (Array.isArray(fetched)) {
         setHeaders(fetched);
       } else {
-        const keys = Object.keys(currentMap);
-        setHeaders(keys.length > 0 ? keys : ['Name', 'Email', 'Company', 'Date']);
+        setHeaders([]);
       }
     } catch {
-      const keys = Object.keys(currentMap);
-      setHeaders(keys.length > 0 ? keys : ['Name', 'Email', 'Company', 'Date']);
+      setHeaders([]);
     } finally {
       setIsLoadingHeaders(false);
     }
@@ -190,7 +210,13 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
 
   // 6. Prune stale / obsolete column mappings that do not exist in current sheet headers
   useEffect(() => {
-    if (headers.length === 0) return;
+    if (headers.length === 0) {
+      // If sheet has no headers and values has stale keys, reset
+      if (Object.keys(currentMap).length > 0) {
+        onChangeValues({}, {});
+      }
+      return;
+    }
     const headerSet = new Set(headers);
     const staleKeys = Object.keys(currentMap).filter((k) => !headerSet.has(k));
     const staleMetaKeys = Object.keys(currentMeta).filter((k) => !headerSet.has(k));
@@ -384,14 +410,51 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
   };
 
   // 12. Add custom column
-  const handleAddCustomColumn = () => {
+  const handleAddCustomColumn = async () => {
     const colName = prompt('Enter new column header name:');
     if (colName && colName.trim()) {
       const trimmed = colName.trim();
       if (!headers.includes(trimmed)) {
-        setHeaders((prev) => [...prev, trimmed]);
+        const next = [...headers, trimmed];
+        setHeaders(next);
+        if (spreadsheetId && credentialId) {
+          try {
+            await api.addGoogleSheetColumns(spreadsheetId, sheetName || 'Sheet1', credentialId, [trimmed]);
+          } catch (err) {
+            console.warn('Could not write column to remote sheet:', err);
+          }
+        }
       }
     }
+  };
+
+  // 12b. Auto-create headers in Google Sheet from real upstream trigger fields
+  const handleAutoCreateHeadersFromUpstream = async () => {
+    if (realUpstreamFieldNames.length === 0) return;
+    setIsWritingHeaders(true);
+    try {
+      if (spreadsheetId && credentialId) {
+        const updated = await api.addGoogleSheetColumns(
+          spreadsheetId,
+          sheetName || 'Sheet1',
+          credentialId,
+          realUpstreamFieldNames
+        );
+        setHeaders(updated);
+      } else {
+        setHeaders(realUpstreamFieldNames);
+      }
+    } catch (err: any) {
+      console.error('Failed to create headers in sheet:', err);
+      setHeaders(realUpstreamFieldNames);
+    } finally {
+      setIsWritingHeaders(false);
+    }
+  };
+
+  // 12c. Clear all current mappings
+  const handleClearAllMappings = () => {
+    onChangeValues({}, {});
   };
 
   // 13. Format display label and validate expression against upstream sources
@@ -514,11 +577,22 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {mappedCols > 0 && (
+            <button
+              type="button"
+              onClick={handleClearAllMappings}
+              className="px-2 py-1 rounded-[8px] text-[10px] text-text-muted hover:text-rose-400 hover:bg-[#202020] transition-colors cursor-pointer"
+              title="Clear all field mappings"
+            >
+              Clear Mappings
+            </button>
+          )}
+
           <button
             type="button"
             onClick={fetchHeaders}
             disabled={isLoadingHeaders}
-            className="p-1 rounded-[8px] text-text-muted hover:text-text-primary hover:bg-[#202020] transition-colors"
+            className="p-1 rounded-[8px] text-text-muted hover:text-text-primary hover:bg-[#202020] transition-colors cursor-pointer"
             title="Refresh headers from spreadsheet"
           >
             <RefreshCw
@@ -526,15 +600,17 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
             />
           </button>
 
-          <button
-            type="button"
-            onClick={handleAutoMap}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-[10px] bg-[#1E1E1E] hover:bg-[#262626] border border-[#303030] text-[11px] font-semibold text-text-primary transition-all hover:border-emerald-500/40 shadow-sm"
-            title="Automatically match spreadsheet columns with upstream workflow fields"
-          >
-            <Zap className="w-3 h-3 text-emerald-400" />
-            <span>{autoMapSuccess ? 'Mapped!' : 'Auto-Map'}</span>
-          </button>
+          {headers.length > 0 && (
+            <button
+              type="button"
+              onClick={handleAutoMap}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-[10px] bg-[#1E1E1E] hover:bg-[#262626] border border-[#303030] text-[11px] font-semibold text-text-primary transition-all hover:border-emerald-500/40 shadow-sm cursor-pointer"
+              title="Automatically match spreadsheet columns with upstream workflow fields"
+            >
+              <Zap className="w-3 h-3 text-emerald-400" />
+              <span>{autoMapSuccess ? 'Mapped!' : 'Auto-Map'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -616,24 +692,83 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
         </div>
       )}
 
-      {/* Field Mapping Rows */}
-      <div className="space-y-2 bg-[#121212] border border-[#242424] rounded-[18px] p-3 shadow-inner">
-        {headers.map((header, idx) => {
-          const mappedVal = currentMap[header];
-          const display = getDisplayLabel(mappedVal);
-          const isDropdownOpen = activeDropdownCol === header;
-          const entry = matchingResult.entries.find((e) => e.targetKey === header);
+      {/* Field Mapping Rows or Empty State */}
+      {isLoadingHeaders ? (
+        <div className="p-6 rounded-[18px] bg-[#121212] border border-[#242424] text-center space-y-2">
+          <RefreshCw className="w-4 h-4 animate-spin text-emerald-400 mx-auto" />
+          <span className="text-xs text-text-muted">Loading headers from spreadsheet...</span>
+        </div>
+      ) : headers.length === 0 ? (
+        <div className="p-5 rounded-[18px] bg-[#141414] border border-[#262626] text-center space-y-3">
+          <div className="w-9 h-9 rounded-full bg-[#1F1F1F] border border-[#303030] flex items-center justify-center mx-auto text-[#888888]">
+            <Table className="w-4 h-4" />
+          </div>
+          <div className="space-y-1">
+            <div className="font-semibold text-white text-xs">
+              No Column Headers Detected in "{sheetName}"
+            </div>
+            <p className="text-[11px] text-[#808080] max-w-sm mx-auto leading-relaxed">
+              Row 1 of this sheet is currently empty. Add headers to Row 1 in your Google Sheet, or click below to set up columns.
+            </p>
+          </div>
 
-          const isMapped = mappedVal !== undefined && mappedVal !== null && String(mappedVal).trim() !== '';
-          const origin = currentMeta[header]?.origin || (isMapped ? 'auto' : undefined);
-
-          const hasSuggestion = !isMapped && entry?.origin === 'suggested' && entry?.suggestedSource;
-
-          return (
-            <div
-              key={header}
-              className="relative p-2.5 rounded-[12px] bg-[#181818] border border-[#282828] hover:border-[#333333] transition-colors space-y-2"
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleAddCustomColumn}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] bg-[#222222] hover:bg-[#2A2A2A] border border-[#333333] text-white text-xs font-medium transition-colors cursor-pointer"
             >
+              <Plus className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Add Column Header</span>
+            </button>
+
+            {realUpstreamFieldNames.length > 0 && (
+              <button
+                type="button"
+                onClick={handleAutoCreateHeadersFromUpstream}
+                disabled={isWritingHeaders}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition-all shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {isWritingHeaders ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                )}
+                <span>Create Headers from {upstreamSourceName} ({realUpstreamFieldNames.length} fields)</span>
+              </button>
+            )}
+
+            {spreadsheetId && (
+              <a
+                href={`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] bg-[#202020] hover:bg-[#282828] text-[#A0A0A0] hover:text-white text-xs font-medium transition-colors cursor-pointer"
+              >
+                <span>Open Google Sheets</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2 bg-[#121212] border border-[#242424] rounded-[18px] p-3 shadow-inner">
+          {headers.map((header, idx) => {
+            const mappedVal = currentMap[header];
+            const display = getDisplayLabel(mappedVal);
+            const isDropdownOpen = activeDropdownCol === header;
+            const entry = matchingResult.entries.find((e) => e.targetKey === header);
+
+            const isMapped = mappedVal !== undefined && mappedVal !== null && String(mappedVal).trim() !== '';
+            const origin = currentMeta[header]?.origin || (isMapped ? 'auto' : undefined);
+
+            const hasSuggestion = !isMapped && entry?.origin === 'suggested' && entry?.suggestedSource;
+
+            return (
+              <div
+                key={header}
+                className="relative p-2.5 rounded-[12px] bg-[#181818] border border-[#282828] hover:border-[#333333] transition-colors space-y-2"
+              >
               <div className="flex items-center justify-between gap-3">
                 {/* Column Badge & Header Name */}
                 <div className="flex items-center gap-2 min-w-0">
@@ -794,28 +929,34 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
                         Previous Steps
                       </div>
                       <div className="space-y-0.5">
-                        {filteredSources
-                          .filter((s) => s.sourceCategory !== 'system')
-                          .map((source) => (
-                            <button
-                              key={source.rawExpression}
-                              type="button"
-                              onClick={() => handleMapField(header, source.rawExpression)}
-                              className="w-full text-left px-2.5 py-1.5 rounded-[8px] hover:bg-[#282828] text-text-primary flex items-center justify-between group transition-colors"
-                            >
-                              <div className="flex items-center gap-2 truncate">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                                <span className="font-medium text-xs truncate">
-                                  {source.label}
-                                </span>
-                              </div>
-                              {source.sampleValue !== undefined && source.sampleValue !== null && (
-                                <span className="text-[10px] text-text-muted truncate max-w-[100px] font-mono opacity-80">
-                                  {String(source.sampleValue)}
-                                </span>
-                              )}
-                            </button>
-                          ))}
+                        {filteredSources.filter((s) => s.sourceCategory !== 'system').length === 0 ? (
+                          <div className="px-2.5 py-2.5 text-[11px] text-[#707070] italic">
+                            No variables detected from previous steps. Configure or test upstream triggers to discover fields.
+                          </div>
+                        ) : (
+                          filteredSources
+                            .filter((s) => s.sourceCategory !== 'system')
+                            .map((source) => (
+                              <button
+                                key={source.rawExpression}
+                                type="button"
+                                onClick={() => handleMapField(header, source.rawExpression)}
+                                className="w-full text-left px-2.5 py-1.5 rounded-[8px] hover:bg-[#282828] text-text-primary flex items-center justify-between group transition-colors cursor-pointer"
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                                  <span className="font-medium text-xs truncate">
+                                    {source.label}
+                                  </span>
+                                </div>
+                                {source.sampleValue !== undefined && source.sampleValue !== null && (
+                                  <span className="text-[10px] text-text-muted truncate max-w-[100px] font-mono opacity-80">
+                                    {String(source.sampleValue)}
+                                  </span>
+                                )}
+                              </button>
+                            ))
+                        )}
                       </div>
                     </div>
 
@@ -941,12 +1082,13 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
         <button
           type="button"
           onClick={handleAddCustomColumn}
-          className="w-full py-2 rounded-[12px] border border-dashed border-[#2E2E2E] hover:border-[#444444] text-[11px] font-medium text-text-muted hover:text-text-primary transition-all flex items-center justify-center gap-1.5"
+          className="w-full py-2 rounded-[12px] border border-dashed border-[#2E2E2E] hover:border-[#444444] text-[11px] font-medium text-text-muted hover:text-text-primary transition-all flex items-center justify-center gap-1.5 cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>Add Column Header</span>
         </button>
       </div>
+    )}
 
       {/* Row Preview Card (Live spreadsheet preview) */}
       <div className="p-4 rounded-[18px] bg-[#141414] border border-[#262626] space-y-3">

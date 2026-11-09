@@ -66,6 +66,32 @@ export function formatFieldLabel(path: string): string {
 }
 
 /**
+ * Format a raw variable expression, safely handling spaces and special characters with bracket notation.
+ * e.g. "email" -> "{{ trigger.email }}"
+ * e.g. "What is your role?" -> "{{ trigger["What is your role?"] }}"
+ */
+export function formatRawExpression(nodeKey: string, path: string): string {
+  if (!path) return `{{ ${nodeKey} }}`;
+  const segments = path.split('.');
+  const allIdentifiers = segments.every((seg) => /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(seg));
+  if (allIdentifiers) {
+    return `{{ ${nodeKey}.${path} }}`;
+  }
+  if (segments.length === 1) {
+    return `{{ ${nodeKey}["${path.replace(/"/g, '\\"')}"] }}`;
+  }
+  let expr = nodeKey;
+  for (const seg of segments) {
+    if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(seg)) {
+      expr += `.${seg}`;
+    } else {
+      expr += `["${seg.replace(/"/g, '\\"')}"]`;
+    }
+  }
+  return `{{ ${expr} }}`;
+}
+
+/**
  * Recursively inspect an object or array to discover all dot-notation paths,
  * types, and real sample values.
  */
@@ -89,7 +115,7 @@ export function extractFieldsFromData(
     if (prefix) {
       result.push({
         id: `${nodeKey}.${prefix}`,
-        rawExpression: `{{ ${nodeKey}.${prefix} }}`,
+        rawExpression: formatRawExpression(nodeKey, prefix),
         nodeKey,
         stepName,
         stepType,
@@ -113,7 +139,7 @@ export function extractFieldsFromData(
       }
       result.push({
         id: `${nodeKey}.${prefix}`,
-        rawExpression: `{{ ${nodeKey}.${prefix} }}`,
+        rawExpression: formatRawExpression(nodeKey, prefix),
         nodeKey,
         stepName,
         stepType,
@@ -131,7 +157,7 @@ export function extractFieldsFromData(
     if (prefix) {
       result.push({
         id: `${nodeKey}.${prefix}`,
-        rawExpression: `{{ ${nodeKey}.${prefix} }}`,
+        rawExpression: formatRawExpression(nodeKey, prefix),
         nodeKey,
         stepName,
         stepType,
@@ -164,7 +190,7 @@ export function extractFieldsFromData(
     if (prefix) {
       result.push({
         id: `${nodeKey}.${prefix}`,
-        rawExpression: `{{ ${nodeKey}.${prefix} }}`,
+        rawExpression: formatRawExpression(nodeKey, prefix),
         nodeKey,
         stepName,
         stepType,
@@ -230,18 +256,11 @@ export function getDefaultNodeSchema(
   switch (type) {
     case 'google_forms.trigger':
     case 'forms.trigger':
-      add('responseId', 'Response ID', 'string', 'resp_101');
-      add('formId', 'Form ID', 'string', '1FAIpQLSc...');
-      add('formTitle', 'Form Title', 'string', 'Customer Intake Form');
-      add('submittedAt', 'Submitted At', 'string', new Date().toISOString());
-      add('respondentEmail', 'Respondent Email', 'string', 'sarah.c@sky.net');
-      add('leadId', 'Lead ID', 'string', 'LEAD-101');
-      add('name', 'Name', 'string', 'Sarah Connor');
-      add('email', 'Email', 'string', 'sarah.c@sky.net');
-      add('phone', 'Phone', 'string', '+1-555-0199');
-      add('score', 'Score', 'number', '95');
-      add('source', 'Source', 'string', 'Website Intake');
-      add('answers', 'Answers Map', 'object', '{ ... }');
+      add('responseId', 'Response ID', 'string');
+      add('formTitle', 'Form Title', 'string');
+      add('formId', 'Form ID', 'string');
+      add('submittedAt', 'Submission Time', 'string');
+      add('respondentEmail', 'Respondent Email', 'string');
       break;
 
     case 'webhook.trigger':
@@ -533,8 +552,52 @@ export function discoverWorkflowVariables({
             }
           }
           if (parsed && typeof parsed === 'object') {
-            sampleData = parsed;
+            const parsedObj = parsed as Record<string, any>;
+            const cleanObj: Record<string, any> = {};
+            const keys = Object.keys(parsedObj).filter(
+              (k) => !['answers', 'formId', 'formTitle'].includes(k)
+            );
+            const questionTitles: string[] = Array.isArray(params.questions)
+              ? (params.questions as any[]).map((q) => (q?.title ? String(q.title).trim() : '')).filter(Boolean)
+              : [];
+
+            for (const k of keys) {
+              if (['responseId', 'submittedAt', 'respondentEmail'].includes(k)) {
+                cleanObj[k] = parsedObj[k];
+                continue;
+              }
+              if (['name', 'email', 'leadId', 'phone', 'score', 'source'].includes(k) && !questionTitles.includes(k)) {
+                continue;
+              }
+              if (questionTitles.length > 0) {
+                if (questionTitles.includes(k)) {
+                  cleanObj[k] = parsedObj[k];
+                }
+                continue;
+              }
+              const isSlugOfAnother = keys.some(
+                (other) => other !== k && other.toLowerCase().replace(/[^a-z0-9]/g, '') === k
+              );
+              if (!isSlugOfAnother) {
+                cleanObj[k] = parsedObj[k];
+              }
+            }
+            sampleData = cleanObj;
           }
+        } else if (Array.isArray(params.questions) && params.questions.length > 0) {
+          // Discover real variables directly from the form's actual questions
+          const qData: Record<string, any> = {
+            responseId: 'resp_101',
+            submittedAt: new Date().toISOString(),
+            respondentEmail: 'respondent@example.com',
+          };
+          for (const q of (params.questions as any[])) {
+            if (q && typeof q === 'object' && typeof q.title === 'string' && q.title.trim()) {
+              const cleanTitle = q.title.trim();
+              qData[cleanTitle] = `Sample ${cleanTitle}`;
+            }
+          }
+          sampleData = qData;
         }
       }
 

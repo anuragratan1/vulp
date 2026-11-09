@@ -345,12 +345,44 @@ export class ExpressionResolver {
           current = current.payload[segment];
         } else if (current.data && typeof current.data === 'object' && segment in current.data) {
           current = current.data[segment];
+        } else if (current.answers && typeof current.answers === 'object' && segment in current.answers) {
+          current = current.answers[segment];
+        } else if (segment === 'email' && !('email' in current) && ('respondentEmail' in current)) {
+          current = current.respondentEmail;
+        } else if (
+          (segment === 'timestamp' || segment === 'date' || segment === 'submitted_at') &&
+          !('timestamp' in current) &&
+          ('submittedAt' in current)
+        ) {
+          current = current.submittedAt;
         } else {
-          return {
-            resolved: false,
-            value: null,
-            reason: `Property '${segment}' not found in path '{{ ${pathStr} }}'`,
-          };
+          // Normalized slug / case-insensitive fallback across object keys
+          const targetNorm = segment.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const matchedKey = targetNorm
+            ? Object.keys(current).find((k) => k.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm)
+            : undefined;
+          if (matchedKey && matchedKey in current) {
+            current = current[matchedKey];
+          } else if (current.answers && typeof current.answers === 'object') {
+            const matchedAnswerKey = targetNorm
+              ? Object.keys(current.answers).find((k) => k.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm)
+              : undefined;
+            if (matchedAnswerKey && matchedAnswerKey in current.answers) {
+              current = current.answers[matchedAnswerKey];
+            } else {
+              return {
+                resolved: false,
+                value: null,
+                reason: `Property '${segment}' not found in path '{{ ${pathStr} }}'`,
+              };
+            }
+          } else {
+            return {
+              resolved: false,
+              value: null,
+              reason: `Property '${segment}' not found in path '{{ ${pathStr} }}'`,
+            };
+          }
         }
       } else {
         return {
