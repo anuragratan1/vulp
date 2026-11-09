@@ -14,6 +14,7 @@ import {
   Plus,
   X,
   Loader2,
+  LogOut,
 } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -120,6 +121,7 @@ function MainStudioApp() {
     workspaces,
     switchWorkspace,
     createWorkspace,
+    logout,
   } = useAuth();
 
   // Normalize incoming URL view parameters for backward compatibility
@@ -584,8 +586,8 @@ function MainStudioApp() {
             />
           </div>
 
-          {/* Bottom Settings & Account Navigation */}
-          <div className={`p-3.5 border-t border-border-subtle space-y-1.5 ${isSidebarCollapsed ? 'px-2' : ''}`}>
+          {/* Bottom Settings, Account & Logout Navigation */}
+          <div className={`p-3 border-t border-border-subtle space-y-1.5 ${isSidebarCollapsed ? 'px-2' : ''}`}>
             <NavItem
               icon={<SettingsIcon className="w-[18px] h-[18px]" />}
               label="Settings"
@@ -595,42 +597,175 @@ function MainStudioApp() {
             />
 
             {isSidebarCollapsed ? (
-              <div className="flex justify-center pt-1">
+              <div className="flex flex-col items-center gap-1.5 pt-1">
+                {/* Collapsed User Dropdown */}
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      className="w-10 h-10 rounded-full bg-gradient-to-br from-[#FF7306]/20 to-[#FF7306]/5 border border-[#FF7306]/30 flex items-center justify-center text-[#FF7306] font-semibold text-xs outline-none hover:border-[#FF7306]/60 transition-colors cursor-pointer select-none"
+                      aria-label="User Account Menu"
+                    >
+                      {user?.name ? user.name.slice(0, 2).toUpperCase() : 'U'}
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      side="right"
+                      align="end"
+                      sideOffset={12}
+                      className="z-50 min-w-[220px] bg-[#1A1A1A] border border-[#2E2E2E] rounded-[16px] p-1.5 shadow-2xl space-y-1 animate-in fade-in zoom-in-95 duration-150 text-xs"
+                    >
+                      <div className="px-3 py-2 border-b border-[#262626]">
+                        <div className="font-semibold text-text-primary truncate">{user?.name}</div>
+                        <div className="text-[11px] text-text-muted truncate">{user?.email}</div>
+                        {workspace?.name && (
+                          <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#242424] text-[#FF7306]">
+                            {workspace.name}
+                          </div>
+                        )}
+                      </div>
+
+                      <DropdownMenu.Item
+                        onClick={() => handleNavigate('account')}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-text-secondary hover:text-text-primary hover:bg-[#262626] cursor-pointer outline-none transition-colors"
+                      >
+                        <User className="w-4 h-4 text-text-muted" />
+                        <span>Account &amp; Workspaces</span>
+                      </DropdownMenu.Item>
+
+                      <DropdownMenu.Item
+                        onClick={() => handleNavigate('settings')}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-text-secondary hover:text-text-primary hover:bg-[#262626] cursor-pointer outline-none transition-colors"
+                      >
+                        <SettingsIcon className="w-4 h-4 text-text-muted" />
+                        <span>Settings</span>
+                      </DropdownMenu.Item>
+
+                      <DropdownMenu.Separator className="h-px bg-[#262626] my-1" />
+
+                      <DropdownMenu.Item
+                        onClick={() => logout()}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10 cursor-pointer outline-none transition-colors font-medium"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>Log Out</span>
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+
+                {/* Collapsed Direct Log Out Button */}
                 <Tooltip.Root delayDuration={80}>
                   <Tooltip.Trigger asChild>
                     <button
                       type="button"
-                      onClick={() => handleNavigate('account')}
-                      className={`w-11 h-11 rounded-full flex items-center justify-center outline-none focus:outline-none transition-colors duration-150 ${
-                        view === 'account'
-                          ? 'bg-surface-elevated text-text-primary'
-                          : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
-                      }`}
+                      onClick={() => logout()}
+                      className="w-10 h-10 rounded-[12px] flex items-center justify-center text-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                      aria-label="Log Out"
                     >
-                      <User className="w-[18px] h-[18px]" />
+                      <LogOut className="w-[18px] h-[18px]" />
                     </button>
                   </Tooltip.Trigger>
                   <Tooltip.Portal>
                     <Tooltip.Content
                       side="right"
                       sideOffset={12}
-                      className="z-50 px-3 py-2 text-xs font-medium text-text-primary bg-surface-elevated border border-border rounded-xl shadow-2xl"
+                      className="z-50 px-2.5 py-1 text-xs font-medium text-red-300 bg-[#221212] border border-red-500/30 rounded-[6px] shadow-2xl"
                     >
-                      <div className="font-semibold text-text-primary">{user?.name || 'Account'}</div>
-                      <div className="text-[11px] text-text-muted mt-0.5">{workspace?.name}</div>
-                      <Tooltip.Arrow className="fill-surface-elevated" />
+                      Log Out
+                      <Tooltip.Arrow className="fill-[#221212]" />
                     </Tooltip.Content>
                   </Tooltip.Portal>
                 </Tooltip.Root>
               </div>
             ) : (
-              <NavItem
-                icon={<User className="w-[18px] h-[18px]" />}
-                label={user?.name || 'Account & Profile'}
-                active={view === 'account'}
-                collapsed={isSidebarCollapsed}
-                onClick={() => handleNavigate('account')}
-              />
+              <>
+                {/* Expanded User Dropdown Menu */}
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      className={`w-full flex items-center justify-between p-2 rounded-[12px] transition-all text-left group cursor-pointer ${
+                        view === 'account'
+                          ? 'bg-surface-elevated text-text-primary border border-border-subtle'
+                          : 'hover:bg-surface-hover text-text-secondary hover:text-text-primary'
+                      }`}
+                      aria-label="User Account Menu"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 pr-1">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FF7306]/20 to-[#FF7306]/5 border border-[#FF7306]/30 flex items-center justify-center text-[#FF7306] font-semibold text-xs shrink-0 select-none">
+                          {user?.name ? user.name.slice(0, 2).toUpperCase() : 'U'}
+                        </div>
+                        <div className="min-w-0 truncate">
+                          <div className="text-xs font-medium text-text-primary truncate">
+                            {user?.name || 'Account'}
+                          </div>
+                          <div className="text-[10px] text-text-muted truncate">
+                            {user?.email || workspace?.name || 'Workspace'}
+                          </div>
+                        </div>
+                      </div>
+                      <ChevronDown className="w-3.5 h-3.5 text-text-muted group-hover:text-text-primary shrink-0 transition-transform" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      side="top"
+                      align="start"
+                      sideOffset={8}
+                      className="z-50 min-w-[220px] bg-[#1A1A1A] border border-[#2E2E2E] rounded-[16px] p-1.5 shadow-2xl space-y-1 animate-in fade-in zoom-in-95 duration-150 text-xs"
+                    >
+                      <div className="px-3 py-2 border-b border-[#262626]">
+                        <div className="font-semibold text-text-primary truncate">{user?.name}</div>
+                        <div className="text-[11px] text-text-muted truncate">{user?.email}</div>
+                        {workspace?.name && (
+                          <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#242424] text-[#FF7306]">
+                            {workspace.name}
+                          </div>
+                        )}
+                      </div>
+
+                      <DropdownMenu.Item
+                        onClick={() => handleNavigate('account')}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-text-secondary hover:text-text-primary hover:bg-[#262626] cursor-pointer outline-none transition-colors"
+                      >
+                        <User className="w-4 h-4 text-text-muted" />
+                        <span>Account &amp; Workspaces</span>
+                      </DropdownMenu.Item>
+
+                      <DropdownMenu.Item
+                        onClick={() => handleNavigate('settings')}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-text-secondary hover:text-text-primary hover:bg-[#262626] cursor-pointer outline-none transition-colors"
+                      >
+                        <SettingsIcon className="w-4 h-4 text-text-muted" />
+                        <span>Settings</span>
+                      </DropdownMenu.Item>
+
+                      <DropdownMenu.Separator className="h-px bg-[#262626] my-1" />
+
+                      <DropdownMenu.Item
+                        onClick={() => logout()}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10 cursor-pointer outline-none transition-colors font-medium"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>Log Out</span>
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+
+                {/* Direct 1-Click Logout Button */}
+                <button
+                  type="button"
+                  onClick={() => logout()}
+                  className="w-full flex items-center gap-3 px-3.5 py-2 rounded-[12px] text-xs font-medium text-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer group"
+                  title="Sign out of your account"
+                >
+                  <LogOut className="w-[18px] h-[18px] text-text-muted group-hover:text-red-400 transition-colors" />
+                  <span>Log Out</span>
+                </button>
+              </>
             )}
           </div>
         </nav>

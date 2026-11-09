@@ -34,6 +34,7 @@ import {
   Trash2,
   Loader2,
   Terminal,
+  LogOut,
 } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
@@ -1155,6 +1156,18 @@ export function WorkflowEditor({
                     <span>Delete Automation</span>
                   </DropdownMenu.Item>
                 )}
+
+                <DropdownMenu.Item
+                  onClick={() => {
+                    api.logout().catch(() => {});
+                    localStorage.removeItem('vulp_auth_token');
+                    window.location.href = '/';
+                  }}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10 cursor-pointer outline-none transition-colors border-t border-[#262626] font-medium"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Log Out</span>
+                </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>

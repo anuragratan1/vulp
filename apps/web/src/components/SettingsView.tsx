@@ -9,7 +9,9 @@ import {
   Lock,
   ArrowLeft,
   Info,
+  LogOut,
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext.js';
 import { ThemeSelector } from './ThemeSelector.js';
 
 interface SettingsViewProps {
@@ -31,6 +33,7 @@ const COMMON_TIMEZONES = [
 ];
 
 export function SettingsView({ onBack }: SettingsViewProps) {
+  const { logout } = useAuth();
   // Local preferences backed by localStorage
   const [timezone, setTimezone] = useState(() => {
     return localStorage.getItem('vulp_user_timezone') || 'UTC';
@@ -88,13 +91,24 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleSavePreferences}
-          className="px-5 py-2 rounded-full bg-text-primary hover:opacity-90 text-background text-xs font-bold transition-all shadow-sm active:scale-[0.98]"
-        >
-          {savedSuccess ? 'Saved Preferences' : 'Save Changes'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => logout()}
+            className="px-4 py-2 rounded-full bg-surface-elevated hover:bg-rose-500/10 hover:text-rose-400 border border-border text-xs font-semibold text-text-muted transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSavePreferences}
+            className="px-5 py-2 rounded-full bg-text-primary hover:opacity-90 text-background text-xs font-bold transition-all shadow-sm active:scale-[0.98] cursor-pointer"
+          >
+            {savedSuccess ? 'Saved Preferences' : 'Save Changes'}
+          </button>
+        </div>
       </header>
 
       {/* Main Settings Sections */}
