@@ -461,18 +461,31 @@ export const SpreadsheetPicker: React.FC<SpreadsheetPickerProps> = ({
             <div className="space-y-1.5">
               <div className="text-[11px] font-medium text-[#A3A3A3] flex items-center justify-between">
                 <span>Choose Spreadsheet</span>
-                <button
-                  type="button"
-                  onClick={() => fetchSpreadsheets()}
-                  disabled={isLoadingSpreadsheets || !credentialId}
-                  className="text-[10px] text-[#737373] hover:text-[#0F9D58] flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-40"
-                  title="Refresh spreadsheets list from Google Drive"
-                >
-                  <RefreshCw
-                    className={`w-3 h-3 ${isLoadingSpreadsheets ? 'animate-spin text-[#0F9D58]' : ''}`}
-                  />
-                  <span>{isLoadingSpreadsheets ? 'Refreshing...' : 'Refresh'}</span>
-                </button>
+                <div className="flex items-center gap-2.5">
+                  <a
+                    href={canonicalEditUrl || 'https://docs.google.com/spreadsheets'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-[#0F9D58] hover:underline hover:text-[#2FD07E] flex items-center gap-1 transition-colors font-medium"
+                    title="Open Google Sheets in a new tab"
+                  >
+                    <span>Open Google Sheets</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                  <span className="text-[#333333] select-none">•</span>
+                  <button
+                    type="button"
+                    onClick={() => fetchSpreadsheets()}
+                    disabled={isLoadingSpreadsheets || !credentialId}
+                    className="text-[10px] text-[#737373] hover:text-[#0F9D58] flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-40"
+                    title="Refresh spreadsheets list from Google Drive"
+                  >
+                    <RefreshCw
+                      className={`w-3 h-3 ${isLoadingSpreadsheets ? 'animate-spin text-[#0F9D58]' : ''}`}
+                    />
+                    <span>{isLoadingSpreadsheets ? 'Refreshing...' : 'Refresh'}</span>
+                  </button>
+                </div>
               </div>
 
               {!credentialId ? (

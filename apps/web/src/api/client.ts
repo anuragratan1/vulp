@@ -862,10 +862,10 @@ export const api = {
     if (query) params.set('query', query);
     const res = await request(`/api/integrations/google/spreadsheets?${params.toString()}`);
     const data = await res.json();
-    if (!res.ok || !data.success) {
+    if (!res.ok || (data.success !== undefined && !data.success)) {
       throw new Error(data.error || 'Failed to list spreadsheets');
     }
-    return data.spreadsheets || [];
+    return data.spreadsheets || data.files || [];
   },
 
   async getGoogleSpreadsheet(

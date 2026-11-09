@@ -385,7 +385,15 @@ googleApp.get('/api/integrations/google/spreadsheets', async (c) => {
       return c.json({ error: `Google Drive API error: ${text}` }, res.status as any);
     }
     const data: any = await res.json();
-    return c.json({ spreadsheets: data.files || [] });
+    const files = Array.isArray(data.files)
+      ? data.files.map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          modifiedTime: f.modifiedTime,
+          webViewLink: f.webViewLink || `https://docs.google.com/spreadsheets/d/${f.id}/edit`,
+        }))
+      : [];
+    return c.json({ success: true, spreadsheets: files });
   } catch (err: any) {
     return c.json({ error: err.message }, 400);
   }
