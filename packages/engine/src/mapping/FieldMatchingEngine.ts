@@ -484,6 +484,12 @@ export function matchTargetField(
       }
     }
 
+    // Upstream step source prioritization: real workflow step data always ranks above generic system variables
+    if (source.sourceCategory !== 'system' && finalScore >= 60) {
+      finalScore = Math.min(100, finalScore + 5);
+      finalReason += ' (prioritized upstream workflow step)';
+    }
+
     let confidence: FieldMatchConfidence = 'none';
     if (finalScore >= 80) confidence = 'high';
     else if (finalScore >= 60) confidence = 'medium';
@@ -515,9 +521,16 @@ export function matchTargetField(
   let isAmbiguous = false;
   let finalConfidence = top.confidence;
 
-  // Ambiguity Detection: If second candidate is very close in score (delta < 8) and top score < 95
-  if (candidates.length > 1) {
-    const runnerUp = candidates[1];
+  // Ambiguity Detection: Filter out duplicate representations of the same field (e.g. slug vs title)
+  const distinctCandidates = candidates.filter(
+    (c, idx) =>
+      idx === 0 ||
+      (compactNormalized(c.source.path) !== compactNormalized(top.source.path) &&
+       c.source.id !== top.source.id)
+  );
+
+  if (distinctCandidates.length > 1) {
+    const runnerUp = distinctCandidates[1];
     const delta = top.score - runnerUp.score;
     if (delta < 8 && top.score < 95) {
       isAmbiguous = true;

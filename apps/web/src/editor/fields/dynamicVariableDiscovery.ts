@@ -453,6 +453,101 @@ export function getUpstreamNodes(
 }
 
 /**
+ * Deduplicate and sanitize discovered variables:
+ * 1. Eliminate pure lowercase alphanumeric slugs if a properly cased/spaced/punctuated question title exists
+ *    (e.g., drops `yourscore0100` in favor of `Your Score (0-100)`, drops `fullname` in favor of `Full Name`)
+ * 2. Eliminate old hardcoded demo fallbacks (`leadId`, `name`, `email`, etc.) if not actual questions in the form
+ * 3. Eliminate redundant nested containers like `answers.*` if top-level fields are present
+ * 4. Replace placeholder strings like 'Sample Response' with clean, context-appropriate samples
+ */
+export function sanitizeDiscoveredVariables(
+  vars: DiscoveredVariable[],
+  nodeParams?: Record<string, any>,
+  nodeType?: string
+): DiscoveredVariable[] {
+  if (!vars || vars.length === 0) return [];
+
+  const isForms = nodeType === 'google_forms.trigger' || nodeType === 'forms.trigger';
+  const knownQuestionTitles: string[] =
+    isForms && Array.isArray(nodeParams?.questions)
+      ? (nodeParams.questions as any[])
+          .map((q) => (q?.title ? String(q.title).trim() : ''))
+          .filter(Boolean)
+      : [];
+
+  // Group variables by their compact normalized leaf path (lowercase alphanumeric)
+  const normMap = new Map<string, DiscoveredVariable[]>();
+  for (const v of vars) {
+    if (v.path.startsWith('answers.') || v.path.startsWith('body.answers.')) {
+      continue;
+    }
+    const leaf = v.path.includes('.') ? v.path.split('.').pop()! : v.path;
+    const norm = leaf.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!norm) continue;
+
+    if (!normMap.has(norm)) {
+      normMap.set(norm, []);
+    }
+    normMap.get(norm)!.push(v);
+  }
+
+  const result: DiscoveredVariable[] = [];
+
+  for (const [norm, group] of normMap.entries()) {
+    let best = group[0];
+    if (group.length > 1) {
+      // Pick the best variable: prefer ones with spaces, uppercase, or punctuation
+      const proper = group.find((v) => {
+        const leaf = v.path.includes('.') ? v.path.split('.').pop()! : v.path;
+        return /[A-Z\s?()_]/.test(leaf) && leaf !== norm;
+      });
+      best = proper || group[0];
+    }
+
+    const leaf = best.path.includes('.') ? best.path.split('.').pop()! : best.path;
+
+    // Filter out fake demo fallbacks
+    if (isForms) {
+      if (['name', 'email', 'leadId', 'phone', 'score', 'source'].includes(leaf)) {
+        if (!knownQuestionTitles.includes(leaf)) {
+          continue; // Skip fake demo field
+        }
+      }
+      if (
+        knownQuestionTitles.length > 0 &&
+        !['responseId', 'submittedAt', 'respondentEmail', 'formId', 'formTitle'].includes(leaf)
+      ) {
+        const matchesKnown = knownQuestionTitles.some(
+          (t) => t.toLowerCase().replace(/[^a-z0-9]/g, '') === norm
+        );
+        if (!matchesKnown) {
+          continue; // Skip fields not in known questions
+        }
+      }
+    }
+
+    // Clean sample value if it contains stale demo placeholders
+    let cleanSample = best.sampleValue;
+    if (cleanSample === 'Sample Response') {
+      cleanSample = undefined;
+    } else if (
+      cleanSample === 'Sarah Connor' ||
+      cleanSample === 'sarah.c@sky.net' ||
+      cleanSample === 'LEAD-101'
+    ) {
+      cleanSample = undefined;
+    }
+
+    result.push({
+      ...best,
+      sampleValue: cleanSample,
+    });
+  }
+
+  return result;
+}
+
+/**
  * Main discovery orchestrator. Derives variable suggestions for each eligible
  * upstream node, inspecting:
  * 1. Actual outputs from previous execution runs (nodeRuns)
@@ -500,7 +595,7 @@ export function discoverWorkflowVariables({
         'execution'
       );
       if (liveVars.length > 0) {
-        discoveredVars = liveVars;
+        discoveredVars = sanitizeDiscoveredVariables(liveVars, node.data.params, nodeType);
         hasLiveOutputs = true;
       }
     }
@@ -610,7 +705,7 @@ export function discoverWorkflowVariables({
           'sample'
         );
         if (sampleVars.length > 0) {
-          discoveredVars = sampleVars;
+          discoveredVars = sanitizeDiscoveredVariables(sampleVars, node.data.params, nodeType);
         }
       }
     }
@@ -619,6 +714,9 @@ export function discoverWorkflowVariables({
     if (discoveredVars.length === 0) {
       discoveredVars = getDefaultNodeSchema(nodeType, nodeKey, nodeName);
     }
+
+    // Final deduplication & clean safeguard
+    discoveredVars = sanitizeDiscoveredVariables(discoveredVars, node.data.params, nodeType);
 
     if (discoveredVars.length > 0) {
       groups.push({

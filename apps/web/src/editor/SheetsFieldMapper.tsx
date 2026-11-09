@@ -121,9 +121,11 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
     });
 
     const flat: SourceFieldDefinition[] = [];
+    const seenLeaves = new Map<string, SourceFieldDefinition>();
+
     for (const group of groups) {
       for (const v of group.variables) {
-        flat.push({
+        const item: SourceFieldDefinition = {
           id: v.id,
           rawExpression: v.rawExpression,
           nodeKey: v.nodeKey,
@@ -133,7 +135,23 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
           type: v.type,
           sampleValue: v.sampleValue,
           sourceCategory: group.nodeType === 'system' ? 'system' : 'action',
-        });
+        };
+
+        const leafKey = `${v.nodeKey}:::${v.path.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+        if (!seenLeaves.has(leafKey)) {
+          seenLeaves.set(leafKey, item);
+          flat.push(item);
+        } else {
+          // If existing item was a slug and this one has proper formatting, replace with the proper one
+          const existing = seenLeaves.get(leafKey)!;
+          if (/[A-Z\s?()_]/.test(v.path) && !/[A-Z\s?()_]/.test(existing.path)) {
+            const idx = flat.indexOf(existing);
+            if (idx !== -1) {
+              flat[idx] = item;
+              seenLeaves.set(leafKey, item);
+            }
+          }
+        }
       }
     }
     return flat;
@@ -279,11 +297,17 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
       const isManual = newMeta[header]?.origin === 'manual';
       const hasValue = newValues[header] !== undefined && String(newValues[header]).trim() !== '';
 
-      if (!isManual && !hasValue && entry.origin === 'auto' && entry.value) {
-        newValues[header] = entry.value;
+      const matchedVal =
+        entry.value ||
+        (entry.origin === 'suggested' && entry.suggestedSource?.rawExpression
+          ? entry.suggestedSource.rawExpression
+          : '');
+
+      if (!isManual && !hasValue && matchedVal) {
+        newValues[header] = matchedVal;
         newMeta[header] = {
           origin: 'auto',
-          value: entry.value,
+          value: matchedVal,
         };
         changed = true;
       }
@@ -325,11 +349,15 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
         newValues[header] !== undefined &&
         String(newValues[header]).trim() !== '';
 
-      if (!isManualWithVal && entry.origin === 'auto' && entry.value) {
-        newValues[header] = entry.value;
+      const matchedVal =
+        entry.value ||
+        (entry.suggestedSource?.rawExpression ? entry.suggestedSource.rawExpression : '');
+
+      if (!isManualWithVal && matchedVal) {
+        newValues[header] = matchedVal;
         newMeta[header] = {
           origin: 'auto',
-          value: entry.value,
+          value: matchedVal,
         };
       }
     }
