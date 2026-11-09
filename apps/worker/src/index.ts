@@ -77,10 +77,6 @@ function getActiveWorkspace(c: any): schema.Workspace {
   throw new Error('Workspace context missing: authentication required');
 }
 
-// Mount Authentication & OAuth sub-apps
-app.route('/', authApp);
-app.route('/', googleApp);
-
 // -----------------------------------------------------------------------------
 // Rate Limiting & Multi-Tenant Context Middleware
 // -----------------------------------------------------------------------------
@@ -140,6 +136,10 @@ app.use('/api/*', async (c, next) => {
   c.set('workspace', sessionData.workspace);
   return next();
 });
+
+// Mount Authentication & OAuth sub-apps
+app.route('/', authApp);
+app.route('/', googleApp);
 
 // -----------------------------------------------------------------------------
 // Health Check

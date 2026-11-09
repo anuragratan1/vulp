@@ -687,7 +687,16 @@ export const api = {
   }> {
     const url = new URL(`${API_BASE}/api/auth/google`, window.location.href);
     if (origin) url.searchParams.set('origin', origin);
-    if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
+    const targetWsId =
+      workspaceId ||
+      (() => {
+        try {
+          return localStorage.getItem('vulp_active_workspace_id') || '';
+        } catch {
+          return '';
+        }
+      })();
+    if (targetWsId) url.searchParams.set('workspaceId', targetWsId);
     const res = await request(url.toString());
     if (!res.ok) throw new Error('Failed to generate OAuth URL');
     return res.json();

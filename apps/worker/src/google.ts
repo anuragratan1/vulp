@@ -1,12 +1,18 @@
 import { Hono } from 'hono';
 import { nanoid } from 'nanoid';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { GmailSendEmailOperation } from '@workflow/engine';
 import { Bindings } from './index.js';
 import * as schema from './schema.js';
 import { WorkerCredentialVault } from './CredentialVault.js';
 
-export const googleApp = new Hono<{ Bindings: Bindings }>();
+export const googleApp = new Hono<{
+  Bindings: Bindings;
+  Variables: {
+    user: schema.User;
+    workspace: schema.Workspace;
+  };
+}>();
 
 export function getGoogleIntegrationRedirectUri(c: any): string {
   if (c.env?.GOOGLE_REDIRECT_URI && !c.env.GOOGLE_REDIRECT_URI.includes('localhost')) {
@@ -26,7 +32,25 @@ export function getGoogleIntegrationRedirectUri(c: any): string {
 // -----------------------------------------------------------------------------
 googleApp.get('/api/auth/google', async (c) => {
   const origin = c.req.query('origin') || new URL(c.req.url).origin;
-  const workspaceId = c.req.query('workspaceId') || '';
+  const ws = (c.get('workspace') as any) || {};
+  let workspaceId = c.req.query('workspaceId') || ws?.id || '';
+
+  // Fallback to checking active session if workspaceId was not in query/context
+  if (!workspaceId) {
+    const authHeader = c.req.header('authorization') || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (token) {
+      try {
+        const { drizzle } = await import('drizzle-orm/d1');
+        const db = drizzle(c.env.DB, { schema });
+        const sess = await db.select().from(schema.sessions).where(eq(schema.sessions.id, token)).get();
+        if (sess?.workspaceId) {
+          workspaceId = sess.workspaceId;
+        }
+      } catch {}
+    }
+  }
+
   const clientId = c.env.GOOGLE_CLIENT_ID || '';
   const redirectUri = getGoogleIntegrationRedirectUri(c);
   const isConfigured = Boolean(clientId && c.env.GOOGLE_CLIENT_SECRET);
@@ -125,7 +149,7 @@ googleApp.get('/api/auth/callback/google', async (c) => {
 
     const email = userInfo.email || 'workspace-account@google.com';
     const name = `Google (${email})`;
-    const id = nanoid();
+    let id = nanoid();
     const now = Date.now();
     const expiresAt = now + (tokenData.expires_in || 3600) * 1000;
 
@@ -140,25 +164,79 @@ googleApp.get('/api/auth/callback/google', async (c) => {
     };
 
     const rawState = c.req.query('state') || '';
-    const targetWorkspaceId = rawState.split(':')[1] || 'ws_init_default';
+    let targetWorkspaceId = rawState.split(':')[1] || '';
 
     const { drizzle } = await import('drizzle-orm/d1');
     const { getMasterKeyBuffer } = await import('./crypto.js');
     const db = drizzle(c.env.DB, { schema });
+
+    // Smart tenant resolution: if workspaceId was missing from state or defaulted,
+    // match the user's active workspace by their verified Google email
+    if (!targetWorkspaceId || targetWorkspaceId === 'ws_init_default') {
+      try {
+        const matchedUser = await db
+          .select()
+          .from(schema.users)
+          .where(eq(schema.users.email, email.trim().toLowerCase()))
+          .get();
+
+        if (matchedUser) {
+          const memberWs = await db
+            .select({ workspaceId: schema.workspaceMembers.workspaceId })
+            .from(schema.workspaceMembers)
+            .where(eq(schema.workspaceMembers.userId, matchedUser.id))
+            .get();
+          if (memberWs?.workspaceId) {
+            targetWorkspaceId = memberWs.workspaceId;
+          }
+        }
+      } catch (wsLookupErr) {
+        console.warn('[google callback] Failed to resolve workspace by user email:', wsLookupErr);
+      }
+    }
+
+    if (!targetWorkspaceId) {
+      targetWorkspaceId = 'ws_init_default';
+    }
+
     const vault = new WorkerCredentialVault(db, getMasterKeyBuffer(c.env.WF_MASTER_KEY), undefined, {
-    clientId: c.env.GOOGLE_CLIENT_ID,
-    clientSecret: c.env.GOOGLE_CLIENT_SECRET,
-  });
+      clientId: c.env.GOOGLE_CLIENT_ID,
+      clientSecret: c.env.GOOGLE_CLIENT_SECRET,
+    });
     const dataEnc = vault.encryptSecrets(secretPayload);
 
-    await db.insert(schema.credentials).values({
-      id,
-      workspaceId: targetWorkspaceId,
-      name,
-      type: 'google',
-      dataEnc,
-      createdAt: now,
-    });
+    // Check if an existing Google credential exists in target workspace to refresh or update
+    const existingCred = await db
+      .select()
+      .from(schema.credentials)
+      .where(
+        and(
+          eq(schema.credentials.workspaceId, targetWorkspaceId),
+          eq(schema.credentials.type, 'google')
+        )
+      )
+      .get();
+
+    if (existingCred) {
+      await db
+        .update(schema.credentials)
+        .set({
+          name,
+          dataEnc,
+          createdAt: now,
+        })
+        .where(eq(schema.credentials.id, existingCred.id));
+      id = existingCred.id;
+    } else {
+      await db.insert(schema.credentials).values({
+        id,
+        workspaceId: targetWorkspaceId,
+        name,
+        type: 'google',
+        dataEnc,
+        createdAt: now,
+      });
+    }
 
     return c.html(`
       <!DOCTYPE html>

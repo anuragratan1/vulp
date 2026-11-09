@@ -36,6 +36,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setTokenState] = useState<string | null>(getAuthToken());
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // Sync active workspace ID to localStorage for reliable multi-tab & popup OAuth resolution
+  useEffect(() => {
+    if (workspace?.id) {
+      try {
+        localStorage.setItem('vulp_active_workspace_id', workspace.id);
+      } catch {}
+    } else {
+      try {
+        localStorage.removeItem('vulp_active_workspace_id');
+      } catch {}
+    }
+  }, [workspace?.id]);
+
   const refreshUser = useCallback(async () => {
     if (typeof window !== 'undefined') {
       try {

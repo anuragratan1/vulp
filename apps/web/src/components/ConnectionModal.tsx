@@ -11,6 +11,7 @@ import {
   Check,
 } from 'lucide-react';
 import { api, ConnectionRecord } from '../api/client.js';
+import { useAuth } from '../context/AuthContext.js';
 import {
   ServiceIcon,
   GoogleIcon,
@@ -41,6 +42,7 @@ export function ConnectionModal({
   const displayName = getServiceDisplayName(service);
   const brandColor = getServiceBrandColor(service);
 
+  const { workspace } = useAuth();
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export function ConnectionModal({
 
     if (isOpen && service === 'google') {
       api
-        .getGoogleAuthUrl(window.location.origin)
+        .getGoogleAuthUrl(window.location.origin, workspace?.id)
         .then((info) => {
           setGoogleConfig({
             configured: info.configured,
@@ -166,7 +168,7 @@ export function ConnectionModal({
     try {
       setLoading(true);
       setError(null);
-      const authData = await api.getGoogleAuthUrl(window.location.origin);
+      const authData = await api.getGoogleAuthUrl(window.location.origin, workspace?.id);
 
       const width = 600;
       const height = 700;
