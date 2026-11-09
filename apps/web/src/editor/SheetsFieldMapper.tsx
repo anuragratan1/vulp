@@ -144,7 +144,13 @@ export const SheetsFieldMapper: React.FC<SheetsFieldMapperProps> = ({
         } else {
           // If existing item was a slug and this one has proper formatting, replace with the proper one
           const existing = seenLeaves.get(leafKey)!;
-          if (/[A-Z\s?()_]/.test(v.path) && !/[A-Z\s?()_]/.test(existing.path)) {
+          const candHasSpaceOrPunct = /[\s?()_\-]/.test(v.path);
+          const currHasSpaceOrPunct = /[\s?()_\-]/.test(existing.path);
+          const shouldReplace =
+            (candHasSpaceOrPunct && !currHasSpaceOrPunct) ||
+            (!currHasSpaceOrPunct && v.path.length > existing.path.length);
+
+          if (shouldReplace) {
             const idx = flat.indexOf(existing);
             if (idx !== -1) {
               flat[idx] = item;

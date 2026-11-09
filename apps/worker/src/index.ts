@@ -245,10 +245,21 @@ function validateWorkflowForActivation(graph: WorkflowGraph, registry: any) {
           `Step '${node.name || node.key}' (Google Forms) requires a connected Google account. Please connect or select your Google account in step settings before activating.`
         );
       }
-      if (!node.params?.formId) {
+      const p = (node.params || {}) as Record<string, any>;
+      const formId = p.formId || p.samplePayload?.formId;
+      if (!formId) {
         throw new Error(
           `Step '${node.name || node.key}' (Google Forms) requires a selected Google Form. Please select or create a form in step settings before activating.`
         );
+      }
+      // Ensure formId and formTitle are persistently populated on params
+      if (!node.params) node.params = {};
+      const mutableParams = node.params as Record<string, any>;
+      if (!mutableParams.formId && formId) {
+        mutableParams.formId = formId;
+      }
+      if (!mutableParams.formTitle && p.samplePayload?.formTitle) {
+        mutableParams.formTitle = p.samplePayload.formTitle;
       }
     }
   }
@@ -1153,6 +1164,155 @@ app.post('/api/templates/:id/instantiate', async (c) => {
   return c.json({ workflow: newWf }, 201);
 });
 
+// Manual Poll Google Forms for Workflow
+app.post('/api/workflows/:id/poll-forms', async (c) => {
+  const ws = getActiveWorkspace(c);
+  const { db } = getServices(c.env, ws.id);
+  const id = c.req.param('id');
+  const wf = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id)).get();
+  if (!wf) return c.json({ error: 'Workflow not found' }, 404);
+
+  const graph = (typeof wf.graph === 'string' ? JSON.parse(wf.graph) : wf.graph) as WorkflowGraph;
+  const formNodes = (graph.nodes || []).filter(
+    (n) => n.type === 'google_forms.trigger' || n.type === 'forms.trigger'
+  );
+  if (formNodes.length === 0) {
+    return c.json({ error: 'Workflow does not contain a Google Forms trigger' }, 400);
+  }
+
+  let totalTriggered = 0;
+  for (const node of formNodes) {
+    const count = await pollGoogleFormsForWorkflow(c.env, wf, node);
+    totalTriggered += count;
+  }
+
+  return c.json({ success: true, triggered: totalTriggered });
+});
+
+async function pollGoogleFormsForWorkflow(
+  env: Bindings,
+  wf: schema.Workflow,
+  node: any,
+  ctx?: ExecutionContext
+): Promise<number> {
+  const credId = node.credentialId || node.params?.credentialId;
+  const formId = node.params?.formId || node.params?.samplePayload?.formId;
+  if (!credId || !formId) return 0;
+
+  const { db, vault, runManager } = getServices(env, wf.workspaceId || undefined);
+
+  // 1. Get access token
+  let token: string;
+  try {
+    const secrets = await vault.get(credId);
+    token = secrets.accessToken || secrets.token;
+    if (!token) return 0;
+  } catch (err) {
+    console.warn(`[GoogleForms] Failed to retrieve credential ${credId}:`, err);
+    return 0;
+  }
+
+  // 2. Fetch form metadata to get question mapping
+  const formUrl = `https://forms.googleapis.com/v1/forms/${encodeURIComponent(formId)}`;
+  const formRes = await fetch(formUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!formRes.ok) {
+    console.warn(`[GoogleForms] Failed to fetch form ${formId}: ${formRes.status}`);
+    return 0;
+  }
+  const formData: any = await formRes.json();
+  const questions: Array<{ id: string; title: string }> = [];
+  for (const item of formData.items || []) {
+    if (item.questionItem?.question) {
+      questions.push({
+        id: item.questionItem.question.questionId || item.itemId,
+        title: item.title || 'Untitled Question',
+      });
+    }
+  }
+
+  // 3. Fetch responses
+  const respUrl = `https://forms.googleapis.com/v1/forms/${encodeURIComponent(formId)}/responses`;
+  const respRes = await fetch(respUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!respRes.ok) {
+    console.warn(`[GoogleForms] Failed to fetch responses for form ${formId}: ${respRes.status}`);
+    return 0;
+  }
+  const rData: any = await respRes.json();
+  const responses: any[] = Array.isArray(rData.responses) ? rData.responses : [];
+  if (responses.length === 0) return 0;
+
+  // 4. Retrieve recent runs to identify already processed responseIds
+  const recentRuns = await db
+    .select({ triggerPayload: schema.runs.triggerPayload })
+    .from(schema.runs)
+    .where(eq(schema.runs.workflowId, wf.id))
+    .orderBy(desc(schema.runs.queuedAt))
+    .limit(500)
+    .all();
+
+  const processedIds = new Set<string>();
+  for (const r of recentRuns) {
+    if (!r.triggerPayload) continue;
+    try {
+      const p = (typeof r.triggerPayload === 'string' ? JSON.parse(r.triggerPayload) : r.triggerPayload) as any;
+      if (p?.responseId) processedIds.add(String(p.responseId));
+    } catch {}
+  }
+
+  let triggeredCount = 0;
+  for (const raw of responses) {
+    const respId = raw.responseId;
+    if (!respId || processedIds.has(respId)) continue;
+
+    processedIds.add(respId);
+
+    // Extract answers
+    const answersMap: Record<string, any> = {};
+    const topLevelProps: Record<string, any> = {};
+    const rawAnswers = raw.answers || {};
+
+    for (const q of questions) {
+      const ansObj = rawAnswers[q.id];
+      let val: any = '';
+      if (ansObj?.textAnswers?.answers && Array.isArray(ansObj.textAnswers.answers)) {
+        const textVals = ansObj.textAnswers.answers.map((a: any) => a.value);
+        val = textVals.length > 1 ? textVals : textVals[0] ?? '';
+      }
+      answersMap[q.title] = val;
+      topLevelProps[q.title] = val;
+    }
+
+    const formattedPayload = {
+      responseId: respId,
+      formId,
+      formTitle: formData.info?.title || 'Google Form',
+      submittedAt: raw.lastSubmittedTime || raw.createTime || new Date().toISOString(),
+      respondentEmail: raw.respondentEmail || '',
+      ...topLevelProps,
+      answers: answersMap,
+    };
+
+    console.log(
+      `[GoogleForms] Triggering workflow '${wf.name}' (${wf.id}) for submission ${respId} (${raw.respondentEmail || 'anonymous'})`
+    );
+
+    const { executionPromise } = await runManager.startRun(wf, {
+      triggerKey: node.key,
+      triggerPayload: formattedPayload,
+    });
+
+    if (ctx) {
+      ctx.waitUntil(executionPromise);
+    } else {
+      await executionPromise;
+    }
+
+    triggeredCount++;
+  }
+
+  return triggeredCount;
+}
+
 // SPA & Static Assets fallback
 app.notFound(async (c) => {
   const url = new URL(c.req.url);
@@ -1202,6 +1362,12 @@ export default {
             }
           } catch (cronErr) {
             console.error(`[Cron] Error evaluating cron for workflow ${wf.id}:`, cronErr);
+          }
+        } else if (node.type === 'google_forms.trigger' || node.type === 'forms.trigger') {
+          try {
+            await pollGoogleFormsForWorkflow(env, wf, node, ctx);
+          } catch (formErr) {
+            console.error(`[Cron] Error polling Google Forms for workflow ${wf.id}:`, formErr);
           }
         }
       }

@@ -863,6 +863,17 @@ export const api = {
     return data;
   },
 
+  async pollWorkflowForms(workflowId: string): Promise<{ success: boolean; triggered: number }> {
+    const res = await request(`/api/workflows/${encodeURIComponent(workflowId)}/poll-forms`, {
+      method: 'POST',
+    });
+    const data = await res.json();
+    if (!res.ok || (data.success !== undefined && !data.success)) {
+      throw new Error(data.error || 'Failed to poll Google Forms for workflow');
+    }
+    return data;
+  },
+
   async getGoogleSpreadsheets(
     credentialId: string,
     query?: string

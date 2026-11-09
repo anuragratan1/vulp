@@ -30,6 +30,9 @@ export interface StepVariableGroup {
  */
 export function formatFieldLabel(path: string): string {
   if (!path) return '';
+  if (path === 'submittedAt' || path.endsWith('.submittedAt')) return 'Submission Timestamp';
+  if (path === 'respondentEmail' || path.endsWith('.respondentEmail')) return 'Respondent Email';
+  if (path === 'responseId' || path.endsWith('.responseId')) return 'Response ID';
 
   // Strip common root containers like "body." or "data." if nested
   let displayPath = path;

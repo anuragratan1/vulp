@@ -18,6 +18,7 @@ import {
 import { CanvasNode } from '../graphConverter.js';
 import { api } from '../../api/client.js';
 import { GoogleFormsIcon } from '../../components/ServiceIcons.js';
+import { extractFieldsFromData, sanitizeDiscoveredVariables } from '../fields/dynamicVariableDiscovery.js';
 
 interface GoogleFormsTriggerConfigProps {
   node: CanvasNode;
@@ -42,11 +43,25 @@ export function GoogleFormsTriggerConfig({
   workflowId,
 }: GoogleFormsTriggerConfigProps) {
   const credentialId = node.data.credentialId || params.credentialId;
-  const formId = params.formId || '';
-  const formTitle = params.formTitle || '';
+  const formId = params.formId || params.samplePayload?.formId || '';
+  const formTitle = params.formTitle || params.samplePayload?.formTitle || '';
+
+  // Ensure formId & formTitle are persistently synced if present in samplePayload
+  useEffect(() => {
+    if (!params.formId && params.samplePayload?.formId) {
+      onParamChange({
+        formId: params.samplePayload.formId,
+        formTitle: params.samplePayload.formTitle || params.formTitle || '',
+      });
+    }
+  }, [params.formId, params.samplePayload?.formId]);
 
   // Mode: select existing form vs create new form
   const [mode, setMode] = useState<'select' | 'create'>('select');
+
+  // Manual Check Now state
+  const [isCheckingNow, setIsCheckingNow] = useState(false);
+  const [checkNowMessage, setCheckNowMessage] = useState<string | null>(null);
 
   // Select method inside 'select' mode: Drive list vs Paste URL / ID
   const [selectMethod, setSelectMethod] = useState<'picker' | 'url'>('picker');
@@ -272,8 +287,12 @@ export function GoogleFormsTriggerConfig({
         sample: res.sample,
       });
 
-      // Update node params with sample payload for instant downstream auto-map
-      onParamChange('samplePayload', res.sample);
+      // Update node params with sample payload and persist formId/formTitle
+      onParamChange({
+        samplePayload: res.sample,
+        formId: activeFormId || res.sample?.formId || formId,
+        formTitle: res.sample?.formTitle || formTitle,
+      });
     } catch (err: any) {
       setTestResult({
         success: false,
@@ -292,35 +311,18 @@ export function GoogleFormsTriggerConfig({
     return forms.filter((f) => f.name.toLowerCase().includes(q) || f.id.toLowerCase().includes(q));
   }, [forms, formSearch]);
 
-  // Derived discovered fields from sample payload
+  // Derived discovered fields from sample payload using the centralized sanitizer
   const discoveredFields = useMemo(() => {
     const payload = testResult?.sample || params.samplePayload;
     if (!payload || typeof payload !== 'object') return [];
-    const rawKeys = Object.keys(payload).filter((k) => !['answers', 'formId', 'formTitle'].includes(k));
-
-    // Get known question titles if available
-    const questionTitles: string[] = Array.isArray(params.questions)
-      ? (params.questions as any[]).map((q) => (q?.title ? String(q.title).trim() : '')).filter(Boolean)
-      : [];
-
-    return rawKeys.filter((key) => {
-      // Always include authentic metadata
-      if (['responseId', 'submittedAt', 'respondentEmail'].includes(key)) return true;
-      // Filter out stale demo fallbacks if they are not questions in this form
-      if (['name', 'email', 'leadId', 'phone', 'score', 'source'].includes(key)) {
-        return questionTitles.includes(key);
-      }
-      // If we know the form's questions, only show real question titles
-      if (questionTitles.length > 0) {
-        return questionTitles.includes(key);
-      }
-      // Deduplicate: filter out lowercased/slugified key if a clean titled version exists
-      const hasProperTitle = rawKeys.some(
-        (other) => other !== key && other.toLowerCase().replace(/[^a-z0-9]/g, '') === key
-      );
-      return !hasProperTitle;
-    });
-  }, [testResult, params.samplePayload, params.questions]);
+    const nodeKey = node.data.key || node.id || 'google_forms_trigger';
+    const nodeName = node.data.name || 'Google Forms Trigger';
+    const rawVars = extractFieldsFromData(payload, nodeKey, nodeName, 'google_forms.trigger', 'sample');
+    const sanitized = sanitizeDiscoveredVariables(rawVars, params, 'google_forms.trigger');
+    return sanitized
+      .map((v) => v.path)
+      .filter((p) => !p.startsWith('answers') && !['formId', 'formTitle'].includes(p));
+  }, [testResult, params.samplePayload, params.questions, node.data.key, node.data.name, node.id]);
 
   return (
     <div className="space-y-5 text-xs font-sans">
@@ -845,12 +847,45 @@ export function GoogleFormsTriggerConfig({
       )}
 
       {/* Cadence & Polling Info */}
-      <div className="p-3.5 rounded-[12px] bg-[#141414] border border-[#222222] flex items-start gap-2 text-[#808080] text-[11px] leading-relaxed">
-        <Info className="w-3.5 h-3.5 text-[#7248B9] shrink-0 mt-0.5" />
-        <span>
-          When activated, VULP automatically detects new submissions and strictly deduplicates by Response ID. Each form
-          submission executes this workflow once.
-        </span>
+      <div className="p-3.5 rounded-[12px] bg-[#141414] border border-[#222222] space-y-2.5">
+        <div className="flex items-start gap-2 text-[#808080] text-[11px] leading-relaxed">
+          <Info className="w-3.5 h-3.5 text-[#7248B9] shrink-0 mt-0.5" />
+          <span>
+            When activated, VULP automatically detects new submissions and strictly deduplicates by Response ID. Each form
+            submission executes this workflow once.
+          </span>
+        </div>
+        {formId && workflowId && (
+          <div className="pt-2 flex items-center justify-between border-t border-[#222222]">
+            <span className="text-[11px] text-[#A0A0A0]">
+              {checkNowMessage || 'Want to check for live submissions right now?'}
+            </span>
+            <button
+              type="button"
+              disabled={isCheckingNow}
+              onClick={async () => {
+                setIsCheckingNow(true);
+                setCheckNowMessage(null);
+                try {
+                  const res = await api.pollWorkflowForms(workflowId);
+                  setCheckNowMessage(
+                    res.triggered > 0
+                      ? `Triggered ${res.triggered} new submission(s)!`
+                      : 'Checked: No new submissions found.'
+                  );
+                } catch (err: any) {
+                  setCheckNowMessage(err.message || 'Check failed.');
+                } finally {
+                  setIsCheckingNow(false);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#202020] hover:bg-[#2A2A2A] text-white text-[11px] font-medium transition-colors border border-[#333333] cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3 h-3 ${isCheckingNow ? 'animate-spin' : ''}`} />
+              <span>{isCheckingNow ? 'Checking...' : 'Check Submissions Now'}</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

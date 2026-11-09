@@ -20,6 +20,7 @@ interface AutomationsViewProps {
   onOpenAutomation: (id: string) => void;
   onCreateScratch: () => void;
   onOpenTemplates: () => void;
+  onWorkflowUpdated?: (workflow: WorkflowRecord) => void;
 }
 
 type FilterTab = 'all' | 'active' | 'inactive' | 'attention';
@@ -28,6 +29,7 @@ export function AutomationsView({
   onOpenAutomation,
   onCreateScratch,
   onOpenTemplates,
+  onWorkflowUpdated,
 }: AutomationsViewProps) {
   const cachedWfs = api.getCachedWorkflows();
   const cachedRuns = api.getCachedRuns();
@@ -130,6 +132,7 @@ export function AutomationsView({
     try {
       const updated = await api.updateWorkflow(wfId, { name: renameValue.trim() });
       setWorkflows((prev) => prev.map((w) => (w.id === wfId ? updated : w)));
+      onWorkflowUpdated?.(updated);
     } catch (err: any) {
       alert(`Failed to rename: ${err.message}`);
     } finally {

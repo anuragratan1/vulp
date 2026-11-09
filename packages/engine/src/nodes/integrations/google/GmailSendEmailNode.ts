@@ -285,20 +285,36 @@ export class GmailSendEmailOperation implements IIntegrationOperation {
 
     // Build RFC 2822 email payload
     const utf8Subject = `=?utf-8?B?${Buffer.from(subject, 'utf-8').toString('base64')}?=`;
+    const cleanAddress = (addr: string) => addr.trim();
+
+    const formattedTo = to
+      .split(',')
+      .map(cleanAddress)
+      .filter(Boolean)
+      .join(', ');
+
     const fromHeader = senderName
       ? `From: =?utf-8?B?${Buffer.from(senderName, 'utf-8').toString('base64')}?=`
+      : 'From: me';
+
+    const ccHeader = cc
+      ? `Cc: ${cc.split(',').map(cleanAddress).filter(Boolean).join(', ')}`
       : null;
+    const bccHeader = bcc
+      ? `Bcc: ${bcc.split(',').map(cleanAddress).filter(Boolean).join(', ')}`
+      : null;
+    const replyToHeader = replyTo ? `Reply-To: ${cleanAddress(replyTo)}` : null;
 
     let mimePayload = '';
 
     if (resolvedAttachments.length === 0) {
       // Simple Single-part MIME message
       const lines = [
-        `To: ${to}`,
         fromHeader,
-        cc ? `Cc: ${cc}` : null,
-        bcc ? `Bcc: ${bcc}` : null,
-        replyTo ? `Reply-To: ${replyTo}` : null,
+        `To: ${formattedTo}`,
+        ccHeader,
+        bccHeader,
+        replyToHeader,
         `Subject: ${utf8Subject}`,
         'MIME-Version: 1.0',
         isHtml
@@ -316,11 +332,11 @@ export class GmailSendEmailOperation implements IIntegrationOperation {
       // Multipart Mixed MIME message with attachments
       const boundary = `====_vulp_boundary_${Date.now()}_${Math.random().toString(36).slice(2)}====`;
       const parts: string[] = [
-        `To: ${to}`,
         fromHeader,
-        cc ? `Cc: ${cc}` : null,
-        bcc ? `Bcc: ${bcc}` : null,
-        replyTo ? `Reply-To: ${replyTo}` : null,
+        `To: ${formattedTo}`,
+        ccHeader,
+        bccHeader,
+        replyToHeader,
         `Subject: ${utf8Subject}`,
         'MIME-Version: 1.0',
         `Content-Type: multipart/mixed; boundary="${boundary}"`,

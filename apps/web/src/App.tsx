@@ -804,6 +804,7 @@ function MainStudioApp() {
                 }}
                 onCreateScratch={handleCreateWorkflow}
                 onOpenTemplates={() => handleNavigate('templates')}
+                onWorkflowUpdated={handleWorkflowSaved}
               />
             ) : view === 'templates' ? (
               <TemplatesView
