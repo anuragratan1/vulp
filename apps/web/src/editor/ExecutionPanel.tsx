@@ -18,6 +18,8 @@ import {
   Square,
 } from 'lucide-react';
 import { RunRecord, NodeRunRecord } from '../api/client.js';
+import { ServiceIcon } from '../components/ServiceIcons.js';
+import { ConnectionModal } from '../components/ConnectionModal.js';
 
 export interface ExecutionPanelProps {
   run: RunRecord | null;
@@ -49,6 +51,9 @@ export function ExecutionPanel({
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'output' | 'inputs' | 'logs'>('output');
   const [isMaximized, setIsMaximized] = useState(false);
+  const [connectModalOpen, setConnectModalOpen] = useState(false);
+  const [connectModalService, setConnectModalService] = useState('google');
+  const [reconnectSuccessMsg, setReconnectSuccessMsg] = useState<string | null>(null);
   const preMaximizeHeightRef = useRef<number>(height);
 
   const panelRef = useRef<HTMLDivElement>(null);
@@ -59,6 +64,27 @@ export function ExecutionPanel({
     nodeRuns.find((n) => n.nodeKey === selectedNodeRunKey) ||
     nodeRuns[nodeRuns.length - 1] ||
     null;
+
+  // Identify whether active error requires authentication/authorization login
+  const isAuthError = Boolean(
+    activeNodeRun?.error &&
+      (activeNodeRun.error.includes('401') ||
+        activeNodeRun.error.toLowerCase().includes('authorization expired') ||
+        activeNodeRun.error.toLowerCase().includes('invalid authentication credentials') ||
+        activeNodeRun.error.toLowerCase().includes('reconnect your account') ||
+        activeNodeRun.error.toLowerCase().includes('not connected') ||
+        activeNodeRun.error.toLowerCase().includes('permission denied (403)') ||
+        activeNodeRun.error.toLowerCase().includes('google account is not connected'))
+  );
+
+  const authService = (() => {
+    if (!activeNodeRun) return 'google';
+    const nt = (activeNodeRun.nodeType || '').toLowerCase();
+    const err = (activeNodeRun.error || '').toLowerCase();
+    if (nt.includes('slack') || err.includes('slack')) return 'slack';
+    if (nt.includes('telegram') || err.includes('telegram')) return 'telegram';
+    return 'google';
+  })();
 
   // Auto-switch to logs tab if an error occurred in the active step
   useEffect(() => {
@@ -439,16 +465,91 @@ export function ExecutionPanel({
 
               {/* Step Content Panes */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3.5 select-text">
-                {/* Error Callout */}
-                {activeNodeRun.error && (
-                  <div className="p-3.5 rounded-[14px] bg-danger/10 border border-danger/30 text-danger space-y-1">
-                    <span className="font-semibold flex items-center gap-1.5 text-xs">
-                      <AlertCircle className="w-4 h-4 shrink-0" /> Execution Error
-                    </span>
-                    <pre className="font-mono text-[11px] whitespace-pre-wrap leading-relaxed pl-5">
-                      {activeNodeRun.error}
-                    </pre>
+                {/* Reconnection Success Notification */}
+                {reconnectSuccessMsg && (
+                  <div className="p-3.5 rounded-[14px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center gap-2.5 text-xs font-semibold animate-in fade-in">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                    <span>{reconnectSuccessMsg}</span>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin ml-auto text-emerald-400" />
                   </div>
+                )}
+
+                {/* Error Callout / Auth Login Prompt */}
+                {activeNodeRun.error && (
+                  isAuthError ? (
+                    <div className="p-4 rounded-[16px] bg-gradient-to-br from-[#1C1510] via-[#141414] to-[#0E0E0E] border border-[#FF7306]/40 shadow-xl space-y-3.5">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center p-2 shrink-0">
+                          <ServiceIcon service={authService} size={22} />
+                        </div>
+                        <div className="space-y-1 min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-bold text-white tracking-tight">
+                              {authService === 'google'
+                                ? 'Google Account Authorization Required'
+                                : authService === 'slack'
+                                ? 'Slack Connection Required'
+                                : 'Telegram Authorization Required'}
+                            </h4>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FF7306]/20 text-[#FF7306] border border-[#FF7306]/30">
+                              Sign In Needed
+                            </span>
+                          </div>
+                          <p className="text-xs text-[#A3A3A3] leading-relaxed">
+                            {authService === 'google'
+                              ? 'Your Google account is not connected or the authorization has expired. Please sign in or reconnect your Google Workspace to allow Vulp to execute this step.'
+                              : authService === 'slack'
+                              ? 'Please configure your Slack webhook URL to post messages.'
+                              : 'Please configure your Telegram bot token to send messages.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center flex-wrap gap-2.5 pt-1 border-t border-white/5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConnectModalService(authService);
+                            setConnectModalOpen(true);
+                          }}
+                          className="px-4 py-2 rounded-xl bg-[#FF7306] hover:bg-[#FF8526] text-white font-bold text-xs flex items-center gap-2 transition-all shadow-glow hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                          <ServiceIcon service={authService} size={15} />
+                          <span>{authService === 'google' ? 'Sign in / Connect Google' : `Connect ${authService}`}</span>
+                        </button>
+
+                        {onReRun && (
+                          <button
+                            type="button"
+                            onClick={onReRun}
+                            className="px-3.5 py-2 rounded-xl bg-[#222222] hover:bg-[#2C2C2C] text-[#E0E0E0] hover:text-white font-semibold text-xs border border-[#333333] flex items-center gap-1.5 transition-colors"
+                          >
+                            <RotateCw className="w-3.5 h-3.5" />
+                            <span>Re-run Step</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Expandable Technical Trace */}
+                      <details className="group pt-1">
+                        <summary className="text-[11px] text-[#737373] hover:text-[#A3A3A3] cursor-pointer select-none font-medium">
+                          View technical error details
+                        </summary>
+                        <pre className="mt-2 p-3 rounded-lg bg-[#0A0A0A] border border-[#222222] font-mono text-[10px] text-danger/90 whitespace-pre-wrap overflow-x-auto leading-relaxed">
+                          {activeNodeRun.error}
+                        </pre>
+                      </details>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 rounded-[14px] bg-danger/10 border border-danger/30 text-danger space-y-1">
+                      <span className="font-semibold flex items-center gap-1.5 text-xs">
+                        <AlertCircle className="w-4 h-4 shrink-0" /> Execution Error
+                      </span>
+                      <pre className="font-mono text-[11px] whitespace-pre-wrap leading-relaxed pl-5">
+                        {activeNodeRun.error}
+                      </pre>
+                    </div>
+                  )
                 )}
 
                 {/* Tab: Output Data */}
@@ -529,6 +630,24 @@ export function ExecutionPanel({
           )}
         </div>
       </div>
+
+      {connectModalOpen && (
+        <ConnectionModal
+          isOpen={connectModalOpen}
+          serviceId={connectModalService}
+          onClose={() => setConnectModalOpen(false)}
+          onSuccess={() => {
+            setConnectModalOpen(false);
+            setReconnectSuccessMsg('Account connected successfully! Re-running automation...');
+            if (onReRun) {
+              setTimeout(() => {
+                setReconnectSuccessMsg(null);
+                onReRun();
+              }, 800);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

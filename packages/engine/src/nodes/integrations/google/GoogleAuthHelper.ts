@@ -89,8 +89,65 @@ export class GoogleAuthHelper {
       response.statusText;
 
     if (response.status === 401) {
+      // In-flight automatic token refresh attempt if refresh token is present
+      const refreshToken = secrets.refreshToken;
+      const clientId = secrets.clientId;
+      const clientSecret = secrets.clientSecret;
+
+      if (refreshToken && clientId && clientSecret) {
+        try {
+          const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              client_id: clientId,
+              client_secret: clientSecret,
+              refresh_token: refreshToken,
+              grant_type: 'refresh_token',
+            }).toString(),
+          });
+
+          if (refreshRes.ok) {
+            const tokenData = (await refreshRes.json()) as any;
+            if (tokenData?.access_token) {
+              secrets.accessToken = tokenData.access_token;
+              secrets.expiresAt = String(Date.now() + (tokenData.expires_in || 3600) * 1000);
+
+              const retryHeaders = new Headers(options.headers || {});
+              retryHeaders.set('Authorization', `Bearer ${tokenData.access_token}`);
+              if (!retryHeaders.has('Accept')) retryHeaders.set('Accept', 'application/json');
+
+              const retryResponse = await fetch(url, {
+                ...options,
+                headers: retryHeaders,
+              });
+
+              if (retryResponse.ok) {
+                const ct = retryResponse.headers.get('content-type') || '';
+                if (ct.includes('application/json')) {
+                  try {
+                    return await retryResponse.json();
+                  } catch {
+                    return {};
+                  }
+                } else {
+                  const retryText = await retryResponse.text();
+                  try {
+                    return JSON.parse(retryText);
+                  } catch {
+                    return { message: retryText };
+                  }
+                }
+              }
+            }
+          }
+        } catch (refreshErr) {
+          console.warn('[GoogleAuthHelper] In-flight token refresh retry failed:', refreshErr);
+        }
+      }
+
       throw new NodeError(
-        `${serviceName} authorization expired or invalid (401): ${errorMsg}. Please reconnect your account.`,
+        `${serviceName} authorization expired or invalid (401): ${errorMsg}. Please connect or sign in to your Google account.`,
         false
       );
     }

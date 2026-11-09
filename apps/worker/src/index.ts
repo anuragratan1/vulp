@@ -63,7 +63,10 @@ app.use('*', async (c, next) => {
 function getServices(env: Bindings, workspaceId?: string) {
   const db = drizzle(env.DB, { schema });
   const masterKey = getMasterKeyBuffer(env.WF_MASTER_KEY);
-  const vault = new WorkerCredentialVault(db, masterKey, workspaceId);
+  const vault = new WorkerCredentialVault(db, masterKey, workspaceId, {
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
+  });
   const runManager = new WorkerRunManager(db, vault);
   return { db, vault, runManager, masterKey };
 }

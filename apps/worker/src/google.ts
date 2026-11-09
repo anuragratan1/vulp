@@ -145,7 +145,10 @@ googleApp.get('/api/auth/callback/google', async (c) => {
     const { drizzle } = await import('drizzle-orm/d1');
     const { getMasterKeyBuffer } = await import('./crypto.js');
     const db = drizzle(c.env.DB, { schema });
-    const vault = new WorkerCredentialVault(db, getMasterKeyBuffer(c.env.WF_MASTER_KEY));
+    const vault = new WorkerCredentialVault(db, getMasterKeyBuffer(c.env.WF_MASTER_KEY), undefined, {
+    clientId: c.env.GOOGLE_CLIENT_ID,
+    clientSecret: c.env.GOOGLE_CLIENT_SECRET,
+  });
     const dataEnc = vault.encryptSecrets(secretPayload);
 
     await db.insert(schema.credentials).values({
@@ -234,7 +237,10 @@ googleApp.post('/api/auth/direct-token', async (c) => {
   const { drizzle } = await import('drizzle-orm/d1');
   const { getMasterKeyBuffer } = await import('./crypto.js');
   const db = drizzle(c.env.DB, { schema });
-  const vault = new WorkerCredentialVault(db, getMasterKeyBuffer(c.env.WF_MASTER_KEY));
+  const vault = new WorkerCredentialVault(db, getMasterKeyBuffer(c.env.WF_MASTER_KEY), undefined, {
+    clientId: c.env.GOOGLE_CLIENT_ID,
+    clientSecret: c.env.GOOGLE_CLIENT_SECRET,
+  });
   const dataEnc = vault.encryptSecrets({
     accessToken,
     refreshToken: refreshToken || '',
@@ -272,7 +278,10 @@ async function getGoogleToken(c: any, credId?: string): Promise<string> {
   const { drizzle } = await import('drizzle-orm/d1');
   const { getMasterKeyBuffer } = await import('./crypto.js');
   const db = drizzle(c.env.DB, { schema });
-  const vault = new WorkerCredentialVault(db, getMasterKeyBuffer(c.env.WF_MASTER_KEY));
+  const vault = new WorkerCredentialVault(db, getMasterKeyBuffer(c.env.WF_MASTER_KEY), undefined, {
+    clientId: c.env.GOOGLE_CLIENT_ID,
+    clientSecret: c.env.GOOGLE_CLIENT_SECRET,
+  });
   const secrets = await vault.get(credId);
   const token = secrets.accessToken || secrets.token;
   if (!token) throw new Error('No access token available for this credential');
@@ -544,7 +553,10 @@ googleApp.post('/api/integrations/google/gmail/test', async (c) => {
     const { drizzle } = await import('drizzle-orm/d1');
     const { getMasterKeyBuffer } = await import('./crypto.js');
     const db = drizzle(c.env.DB, { schema });
-    const vault = new WorkerCredentialVault(db, getMasterKeyBuffer(c.env.WF_MASTER_KEY));
+    const vault = new WorkerCredentialVault(db, getMasterKeyBuffer(c.env.WF_MASTER_KEY), undefined, {
+    clientId: c.env.GOOGLE_CLIENT_ID,
+    clientSecret: c.env.GOOGLE_CLIENT_SECRET,
+  });
     const secrets = await vault.get(credentialId);
 
     const op = new GmailSendEmailOperation();

@@ -45,6 +45,7 @@ import { WorkflowEdge } from './WorkflowEdge.js';
 import { NodePalette } from './NodePalette.js';
 import { NodeConfigPanel } from './NodeConfigPanel.js';
 import { ExecutionPanel } from './ExecutionPanel.js';
+import { ConnectionModal } from '../components/ConnectionModal.js';
 import {
   CanvasNode,
   CanvasEdge,
@@ -116,6 +117,10 @@ export function WorkflowEditor({
   const inflightSaveRef = useRef<boolean>(false);
   const pendingSaveRef = useRef<boolean>(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Pre-flight authorization prompt state
+  const [isConnectPromptOpen, setIsConnectPromptOpen] = useState(false);
+  const [promptConnectService, setPromptConnectService] = useState('google');
 
   // Undo / Redo history
   interface HistorySnapshot {
@@ -526,10 +531,14 @@ export function WorkflowEditor({
   }, [selectedNodeId, nodes, edges, pushHistory]);
 
   // Core save function
-  const performSave = async (explicitName?: string): Promise<WorkflowRecord | null> => {
+  const performSave = async (
+    explicitName?: string,
+    nodesOverride?: CanvasNode[],
+    edgesOverride?: CanvasEdge[]
+  ): Promise<WorkflowRecord | null> => {
     const currentName = explicitName !== undefined ? explicitName : name;
-    const currentNodes = nodes;
-    const currentEdges = edges;
+    const currentNodes = nodesOverride || nodes;
+    const currentEdges = edgesOverride || edges;
     const targetSignature = getGraphSignature(currentName, currentNodes, currentEdges);
 
     if (inflightSaveRef.current) {
@@ -704,6 +713,62 @@ export function WorkflowEditor({
           alert('Invalid JSON in trigger payload. Please check your trigger configuration.');
           return;
         }
+      }
+    }
+
+    // Pre-flight Authorization Check: If workflow contains integration nodes, ensure account is connected
+    const googleNodes = nodes.filter((n) => {
+      const k = (n.data.key || '').toLowerCase();
+      const t = (n.data.type || '').toLowerCase();
+      return (
+        k.startsWith('gmail') ||
+        k.startsWith('sheet') ||
+        k.startsWith('drive') ||
+        k.startsWith('calendar') ||
+        k.startsWith('form') ||
+        t.startsWith('gmail') ||
+        t.startsWith('sheet') ||
+        t.startsWith('drive') ||
+        t.startsWith('calendar') ||
+        t.startsWith('form') ||
+        n.data.integration === 'google'
+      );
+    });
+
+    if (googleNodes.length > 0) {
+      try {
+        const creds = await api.getCredentials();
+        const googleCreds = creds.filter((c) => c.type === 'google');
+        if (googleCreds.length > 0) {
+          // Auto-bind active Google credential to any node lacking an explicit credentialId
+          let needsUpdate = false;
+          const updatedNodes = nodes.map((n) => {
+            const isGNode = googleNodes.some((gn) => gn.id === n.id);
+            if (isGNode && !n.data.credentialId) {
+              needsUpdate = true;
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  credentialId: googleCreds[0].id,
+                },
+              };
+            }
+            return n;
+          });
+
+          if (needsUpdate) {
+            setNodes(updatedNodes);
+            await performSave(undefined, updatedNodes);
+          }
+        } else {
+          // Prompt user to connect Google Workspace instead of executing and failing
+          setPromptConnectService('google');
+          setIsConnectPromptOpen(true);
+          return;
+        }
+      } catch {
+        // Proceed with run attempt if pre-flight check encounters transient network error
       }
     }
 
@@ -1460,6 +1525,42 @@ export function WorkflowEditor({
               }}
             />
           </div>
+        )}
+
+        {/* Pre-flight Account Authorization Modal */}
+        {isConnectPromptOpen && (
+          <ConnectionModal
+            isOpen={isConnectPromptOpen}
+            serviceId={promptConnectService}
+            onClose={() => setIsConnectPromptOpen(false)}
+            onSuccess={async (conn) => {
+              setIsConnectPromptOpen(false);
+              const updatedNodes = nodes.map((n) => {
+                const k = (n.data.key || '').toLowerCase();
+                const t = (n.data.type || '').toLowerCase();
+                const isGNode =
+                  k.startsWith('gmail') ||
+                  k.startsWith('sheet') ||
+                  k.startsWith('drive') ||
+                  k.startsWith('calendar') ||
+                  k.startsWith('form') ||
+                  t.startsWith('gmail') ||
+                  t.startsWith('sheet') ||
+                  t.startsWith('drive') ||
+                  t.startsWith('calendar') ||
+                  t.startsWith('form');
+                if (isGNode && !n.data.credentialId) {
+                  return { ...n, data: { ...n.data, credentialId: conn.id } };
+                }
+                return n;
+              });
+              setNodes(updatedNodes);
+              await performSave(undefined, updatedNodes);
+              setTimeout(() => {
+                handleRunWorkflow();
+              }, 400);
+            }}
+          />
         )}
       </div>
     </div>
