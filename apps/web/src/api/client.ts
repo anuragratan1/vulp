@@ -764,7 +764,7 @@ export const api = {
     if (query) params.set('query', query);
     const res = await request(`/api/integrations/google/forms?${params.toString()}`);
     const data = await res.json();
-    if (!res.ok || !data.success) {
+    if (!res.ok || (data.success !== undefined && !data.success)) {
       throw new Error(data.error || 'Failed to list Google Forms');
     }
     return data.forms || [];
@@ -788,11 +788,16 @@ export const api = {
       description?: string;
     }>;
   }> {
+    let cleanId = formId.trim();
+    const match = cleanId.match(/\/forms\/d\/(?:e\/)?([a-zA-Z0-9-_]+)/);
+    if (match && match[1]) {
+      cleanId = match[1];
+    }
     const res = await request(
-      `/api/integrations/google/forms/${encodeURIComponent(formId)}?credentialId=${encodeURIComponent(credentialId)}`
+      `/api/integrations/google/forms/${encodeURIComponent(cleanId)}?credentialId=${encodeURIComponent(credentialId)}`
     );
     const data = await res.json();
-    if (!res.ok || !data.success) {
+    if (!res.ok || (data.success !== undefined && !data.success)) {
       throw new Error(data.error || 'Failed to fetch Google Form details');
     }
     return data.form;
@@ -823,7 +828,7 @@ export const api = {
       body: JSON.stringify(params),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) {
+    if (!res.ok || (data.success !== undefined && !data.success)) {
       throw new Error(data.error || 'Failed to create Google Form');
     }
     return data.form;
@@ -841,13 +846,18 @@ export const api = {
     form: any;
     message?: string;
   }> {
-    const res = await request(`/api/integrations/google/forms/${encodeURIComponent(formId)}/test`, {
+    let cleanId = formId.trim();
+    const match = cleanId.match(/\/forms\/d\/(?:e\/)?([a-zA-Z0-9-_]+)/);
+    if (match && match[1]) {
+      cleanId = match[1];
+    }
+    const res = await request(`/api/integrations/google/forms/${encodeURIComponent(cleanId)}/test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ credentialId, workflowId, nodeKey }),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) {
+    if (!res.ok || (data.success !== undefined && !data.success)) {
       throw new Error(data.error || 'Failed to test Google Form trigger');
     }
     return data;

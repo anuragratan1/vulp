@@ -13,6 +13,7 @@ import {
   ChevronUp,
   Search,
   Info,
+  Link2,
 } from 'lucide-react';
 import { CanvasNode } from '../graphConverter.js';
 import { api } from '../../api/client.js';
@@ -47,8 +48,16 @@ export function GoogleFormsTriggerConfig({
   // Mode: select existing form vs create new form
   const [mode, setMode] = useState<'select' | 'create'>('select');
 
+  // Select method inside 'select' mode: Drive list vs Paste URL / ID
+  const [selectMethod, setSelectMethod] = useState<'picker' | 'url'>('picker');
+  const [urlInput, setUrlInput] = useState(formId || '');
+  const [urlError, setUrlError] = useState<string | null>(null);
+  const [isValidatingUrl, setIsValidatingUrl] = useState(false);
+
   // Form list & selection state
-  const [forms, setForms] = useState<Array<{ id: string; name: string; modifiedTime?: string; responderUri?: string; webViewLink?: string }>>([]);
+  const [forms, setForms] = useState<
+    Array<{ id: string; name: string; modifiedTime?: string; responderUri?: string; webViewLink?: string }>
+  >([]);
   const [isLoadingForms, setIsLoadingForms] = useState(false);
   const [formSearch, setFormSearch] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -77,8 +86,19 @@ export function GoogleFormsTriggerConfig({
     isLive: boolean;
     message?: string;
     sample?: any;
-  } | null>(params.samplePayload ? { success: true, isLive: false, sample: params.samplePayload, message: 'Saved sample schema ready' } : null);
+  } | null>(
+    params.samplePayload
+      ? { success: true, isLive: false, sample: params.samplePayload, message: 'Saved sample schema ready' }
+      : null
+  );
   const [showJsonPayload, setShowJsonPayload] = useState(false);
+
+  // Keep urlInput in sync if formId changes
+  useEffect(() => {
+    if (formId && !urlInput) {
+      setUrlInput(formId);
+    }
+  }, [formId]);
 
   // 1. Fetch available forms from Google Drive
   const fetchForms = async () => {
@@ -130,16 +150,64 @@ export function GoogleFormsTriggerConfig({
     }
   }, [formId, credentialId]);
 
-  // 3. Handle Select Form
+  // 3. Handle Select Form from Drive List
   const handleSelectForm = (id: string, name: string) => {
     onParamChange({
       formId: id,
       formTitle: name,
     });
+    setUrlInput(id);
     fetchFormDetails(id);
   };
 
-  // 4. Handle Create Form natively
+  // 4. Handle Inspect & Connect Form by URL / ID
+  const handleInspectUrl = async (inputVal?: string) => {
+    const raw = (inputVal ?? urlInput).trim();
+    if (!raw) {
+      setUrlError('Please enter a Google Form URL or Form ID.');
+      return;
+    }
+    if (!credentialId) {
+      setUrlError('Please connect your Google Workspace account above first.');
+      return;
+    }
+
+    // Extract clean ID from various Google Form URL formats
+    let cleanId = raw;
+    const match = raw.match(/\/forms\/d\/(?:e\/)?([a-zA-Z0-9-_]+)/);
+    if (match && match[1]) {
+      cleanId = match[1];
+    }
+
+    setIsValidatingUrl(true);
+    setUrlError(null);
+    try {
+      const details = await api.getGoogleForm(cleanId, credentialId);
+      setSelectedFormDetails(details);
+      onParamChange({
+        formId: details.id,
+        formTitle: details.title,
+        responderUri: details.responderUri,
+      });
+
+      // Automatically run trigger test to discover schema
+      handleTestTrigger(details.id);
+    } catch (err: any) {
+      console.error('Failed to inspect Google Form:', err);
+      const msg = err.message || '';
+      if (raw.includes('/forms/d/e/')) {
+        setUrlError(
+          'Could not find form with this public responder link. Please open the form in edit mode and copy the URL from your browser address bar (https://docs.google.com/forms/d/.../edit).'
+        );
+      } else {
+        setUrlError(msg || 'Could not access form. Please verify the Form ID or your Google account permissions.');
+      }
+    } finally {
+      setIsValidatingUrl(false);
+    }
+  };
+
+  // 5. Handle Create Form natively
   const handleCreateForm = async () => {
     if (!credentialId) return;
     if (!newTitle.trim()) {
@@ -166,6 +234,7 @@ export function GoogleFormsTriggerConfig({
       });
 
       setSelectedFormDetails(created);
+      setUrlInput(created.id);
       setMode('select');
       fetchForms();
 
@@ -178,7 +247,7 @@ export function GoogleFormsTriggerConfig({
     }
   };
 
-  // 5. Handle Test Trigger
+  // 6. Handle Test Trigger
   const handleTestTrigger = async (targetFormId?: string) => {
     const activeFormId = targetFormId || formId;
     if (!credentialId || !activeFormId) return;
@@ -219,9 +288,7 @@ export function GoogleFormsTriggerConfig({
   const discoveredFields = useMemo(() => {
     const payload = testResult?.sample || params.samplePayload;
     if (!payload || typeof payload !== 'object') return [];
-    return Object.keys(payload).filter(
-      (k) => !['answers', 'formId', 'formTitle'].includes(k)
-    );
+    return Object.keys(payload).filter((k) => !['answers', 'formId', 'formTitle'].includes(k));
   }, [testResult, params.samplePayload]);
 
   return (
@@ -245,7 +312,8 @@ export function GoogleFormsTriggerConfig({
           </div>
         </div>
         <p className="text-[11px] text-[#909090] leading-relaxed">
-          Triggers automatically whenever a response is submitted to your Google Form. Zero Apps Script or webhook configuration needed.
+          Triggers automatically whenever a response is submitted to your Google Form. Zero Apps Script or webhook
+          configuration needed.
         </p>
       </div>
 
@@ -262,15 +330,13 @@ export function GoogleFormsTriggerConfig({
         </div>
       )}
 
-      {/* Mode Switcher: Select Existing vs Create New */}
+      {/* Primary Mode Switcher: Select Existing vs Create New */}
       <div className="flex p-0.5 bg-[#121212] border border-[#262626] rounded-[10px]">
         <button
           type="button"
           onClick={() => setMode('select')}
-          className={`flex-1 py-1.5 text-center text-xs font-medium rounded-[8px] transition-all ${
-            mode === 'select'
-              ? 'bg-[#222222] text-white shadow-sm'
-              : 'text-[#888888] hover:text-white'
+          className={`flex-1 py-1.5 text-center text-xs font-medium rounded-[8px] transition-all cursor-pointer ${
+            mode === 'select' ? 'bg-[#222222] text-white shadow-sm' : 'text-[#888888] hover:text-white'
           }`}
         >
           Select Existing Form
@@ -278,10 +344,8 @@ export function GoogleFormsTriggerConfig({
         <button
           type="button"
           onClick={() => setMode('create')}
-          className={`flex-1 py-1.5 text-center text-xs font-medium rounded-[8px] transition-all ${
-            mode === 'create'
-              ? 'bg-[#222222] text-white shadow-sm'
-              : 'text-[#888888] hover:text-white'
+          className={`flex-1 py-1.5 text-center text-xs font-medium rounded-[8px] transition-all cursor-pointer ${
+            mode === 'create' ? 'bg-[#222222] text-white shadow-sm' : 'text-[#888888] hover:text-white'
           }`}
         >
           Create New Form
@@ -293,84 +357,190 @@ export function GoogleFormsTriggerConfig({
       {/* =================================================================== */}
       {mode === 'select' && (
         <div className="space-y-4">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-white">Target Google Form</label>
+          {/* Source Sub-Switcher: Drive List vs Paste URL / ID */}
+          <div className="flex items-center justify-between pb-1 border-b border-[#222222]">
+            <span className="text-[10px] font-semibold tracking-wider text-[#737373] uppercase">Form Source</span>
+            <div className="flex items-center gap-2 text-xs">
               <button
                 type="button"
-                onClick={fetchForms}
-                disabled={isLoadingForms || !credentialId}
-                className="flex items-center gap-1 text-[11px] text-[#A0A0A0] hover:text-white transition-colors"
-                title="Refresh forms from Google Drive"
+                onClick={() => setSelectMethod('picker')}
+                className={`transition-colors cursor-pointer ${
+                  selectMethod === 'picker'
+                    ? 'text-[#7248B9] font-medium border-b border-[#7248B9]'
+                    : 'text-[#888888] hover:text-[#C5C5C5]'
+                }`}
               >
-                <RefreshCw className={`w-3 h-3 ${isLoadingForms ? 'animate-spin' : ''}`} />
-                <span>Refresh</span>
+                Google Drive List
+              </button>
+              <span className="text-[#333333]">|</span>
+              <button
+                type="button"
+                onClick={() => setSelectMethod('url')}
+                className={`flex items-center gap-1 transition-colors cursor-pointer ${
+                  selectMethod === 'url'
+                    ? 'text-[#7248B9] font-medium border-b border-[#7248B9]'
+                    : 'text-[#888888] hover:text-[#C5C5C5]'
+                }`}
+              >
+                <Link2 className="w-3 h-3" />
+                <span>Paste URL / ID</span>
               </button>
             </div>
+          </div>
 
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-[#666666] absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={formSearch}
-                onChange={(e) => setFormSearch(e.target.value)}
-                placeholder="Search forms by name..."
-                disabled={!credentialId}
-                className="w-full bg-[#141414] border border-[#282828] text-white text-xs pl-8 pr-3 py-2 rounded-[8px] outline-none focus:border-[#7248B9] transition-all placeholder:text-[#555555]"
-              />
-            </div>
-
-            {/* Error Message */}
-            {loadError && (
-              <div className="p-3 rounded-[8px] bg-red-950/30 border border-red-800/40 text-[11px] text-red-300">
-                {loadError}
+          {/* Option A: Google Drive List */}
+          {selectMethod === 'picker' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-white">Target Google Form</label>
+                <button
+                  type="button"
+                  onClick={fetchForms}
+                  disabled={isLoadingForms || !credentialId}
+                  className="flex items-center gap-1 text-[11px] text-[#A0A0A0] hover:text-white transition-colors cursor-pointer"
+                  title="Refresh forms from Google Drive"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isLoadingForms ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
               </div>
-            )}
 
-            {/* Forms Dropdown / List */}
-            <div className="max-h-52 overflow-y-auto space-y-1 bg-[#121212] border border-[#242424] rounded-[10px] p-1.5 custom-scrollbar">
-              {isLoadingForms ? (
-                <div className="p-4 text-center text-[#777777] flex items-center justify-center gap-2">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Loading forms from Drive...</span>
+              {/* Search Input */}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-[#666666] absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={formSearch}
+                  onChange={(e) => setFormSearch(e.target.value)}
+                  placeholder="Search forms by name..."
+                  disabled={!credentialId}
+                  className="w-full bg-[#141414] border border-[#282828] text-white text-xs pl-8 pr-3 py-2 rounded-[8px] outline-none focus:border-[#7248B9] transition-all placeholder:text-[#555555]"
+                />
+              </div>
+
+              {/* Error Message */}
+              {loadError && (
+                <div className="p-3 rounded-[8px] bg-red-950/30 border border-red-800/40 text-[11px] text-red-300">
+                  {loadError}
                 </div>
-              ) : filteredForms.length === 0 ? (
-                <div className="p-4 text-center text-[#777777] space-y-2">
-                  <span>No Google Forms found.</span>
+              )}
+
+              {/* Forms Dropdown / List */}
+              <div className="max-h-52 overflow-y-auto space-y-1 bg-[#121212] border border-[#242424] rounded-[10px] p-1.5 custom-scrollbar">
+                {isLoadingForms ? (
+                  <div className="p-4 text-center text-[#777777] flex items-center justify-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Loading forms from Drive...</span>
+                  </div>
+                ) : filteredForms.length === 0 ? (
+                  <div className="p-3.5 text-center text-[#777777] space-y-2">
+                    <span className="block text-xs text-[#A0A0A0]">No Google Forms found in Drive directory.</span>
+                    <p className="text-[11px] text-[#707070] leading-relaxed">
+                      Forms created directly on forms.google.com can be connected instantly by pasting their link.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setSelectMethod('url')}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] bg-[#7248B9]/15 border border-[#7248B9]/40 text-white text-xs hover:bg-[#7248B9]/25 transition-all cursor-pointer font-medium"
+                    >
+                      <Link2 className="w-3 h-3 text-[#7248B9]" />
+                      <span>Paste Form URL / ID &rarr;</span>
+                    </button>
+                  </div>
+                ) : (
+                  filteredForms.map((f) => {
+                    const isSelected = f.id === formId;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => handleSelectForm(f.id, f.name)}
+                        className={`w-full text-left p-2.5 rounded-[8px] flex items-center justify-between transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#7248B9]/15 border border-[#7248B9]/50 text-white'
+                            : 'hover:bg-[#1C1C1C] text-[#C0C0C0]'
+                        }`}
+                      >
+                        <div className="min-w-0 pr-2">
+                          <div className="font-medium truncate text-xs">{f.name}</div>
+                          <div className="text-[10px] text-[#707070] font-mono truncate">ID: {f.id}</div>
+                        </div>
+                        {isSelected && <Check className="w-4 h-4 text-[#7248B9] shrink-0" />}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Option B: Paste Form URL or ID */}
+          {selectMethod === 'url' && (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-white flex items-center justify-between">
+                  <span>Google Form URL or Form ID</span>
+                  <span className="text-[10px] text-[#808080]">From docs.google.com/forms</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={urlInput}
+                    onChange={(e) => {
+                      setUrlInput(e.target.value);
+                      setUrlError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleInspectUrl();
+                      }
+                    }}
+                    placeholder="Paste https://docs.google.com/forms/d/.../edit or Form ID"
+                    disabled={!credentialId || isValidatingUrl}
+                    className="flex-1 bg-[#141414] border border-[#282828] text-white text-xs px-3 py-2 rounded-[8px] outline-none focus:border-[#7248B9] transition-all placeholder:text-[#555555]"
+                  />
                   <button
                     type="button"
-                    onClick={() => setMode('create')}
-                    className="block mx-auto text-xs text-[#7248B9] hover:underline"
+                    onClick={() => handleInspectUrl()}
+                    disabled={!credentialId || !urlInput.trim() || isValidatingUrl}
+                    className="px-3.5 py-2 bg-[#7248B9] hover:bg-[#8356d4] text-white text-xs font-semibold rounded-[8px] transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer shrink-0"
                   >
-                    Create a new form inside VULP
+                    {isValidatingUrl ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Connecting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Connect</span>
+                      </>
+                    )}
                   </button>
                 </div>
-              ) : (
-                filteredForms.map((f) => {
-                  const isSelected = f.id === formId;
-                  return (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => handleSelectForm(f.id, f.name)}
-                      className={`w-full text-left p-2.5 rounded-[8px] flex items-center justify-between transition-all ${
-                        isSelected
-                          ? 'bg-[#7248B9]/15 border border-[#7248B9]/50 text-white'
-                          : 'hover:bg-[#1C1C1C] text-[#C0C0C0]'
-                      }`}
-                    >
-                      <div className="min-w-0 pr-2">
-                        <div className="font-medium truncate text-xs">{f.name}</div>
-                        <div className="text-[10px] text-[#707070] font-mono truncate">ID: {f.id}</div>
-                      </div>
-                      {isSelected && <Check className="w-4 h-4 text-[#7248B9] shrink-0" />}
-                    </button>
-                  );
-                })
+              </div>
+
+              {/* Helper tip */}
+              <div className="p-2.5 rounded-[8px] bg-[#121212] border border-[#222222] text-[11px] text-[#787878] leading-relaxed">
+                <span className="text-[#A0A0A0] font-medium">💡 Tip:</span> Open your form in Google Forms, copy the
+                link from your browser address bar (
+                <span className="text-[#C0C0C0] font-mono">https://docs.google.com/forms/d/.../edit</span>), and paste it
+                here.
+              </div>
+
+              {/* Error Message */}
+              {urlError && (
+                <div className="p-3 rounded-[8px] bg-red-950/30 border border-red-800/40 text-[11px] text-red-300 space-y-1">
+                  <div className="flex items-center gap-1.5 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                    <span>Connection Error</span>
+                  </div>
+                  <p className="leading-relaxed">{urlError}</p>
+                </div>
               )}
             </div>
-          </div>
+          )}
 
           {/* Selected Form Details Card */}
           {formId && (
@@ -379,16 +549,14 @@ export function GoogleFormsTriggerConfig({
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-[#7248B9]" />
                   <span className="font-semibold text-white">{formTitle || 'Selected Form'}</span>
-                  {isLoadingDetails && (
-                    <RefreshCw className="w-3 h-3 text-[#7248B9] animate-spin" />
-                  )}
+                  {isLoadingDetails && <RefreshCw className="w-3 h-3 text-[#7248B9] animate-spin" />}
                 </div>
                 {params.responderUri && (
                   <a
                     href={params.responderUri}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-[11px] text-[#A0A0A0] hover:text-white transition-colors"
+                    className="flex items-center gap-1 text-[11px] text-[#A0A0A0] hover:text-white transition-colors cursor-pointer"
                   >
                     <span>Open Form</span>
                     <ExternalLink className="w-3 h-3" />
@@ -396,9 +564,13 @@ export function GoogleFormsTriggerConfig({
                 )}
               </div>
 
+              <div className="text-[10px] text-[#707070] font-mono">
+                Form ID: <span className="text-[#A0A0A0]">{formId}</span>
+              </div>
+
               {/* Form Questions Overview */}
               {selectedFormDetails?.questions && selectedFormDetails.questions.length > 0 && (
-                <div className="space-y-1.5 pt-1">
+                <div className="space-y-1.5 pt-1 border-t border-[#222222]">
                   <div className="text-[10px] font-semibold text-[#808080] uppercase tracking-wider">
                     Form Questions ({selectedFormDetails.questions.length})
                   </div>
@@ -454,7 +626,7 @@ export function GoogleFormsTriggerConfig({
                     { id: String(Date.now()), title: '', required: false, type: 'TEXT' },
                   ])
                 }
-                className="flex items-center gap-1 text-[11px] text-[#7248B9] hover:underline"
+                className="flex items-center gap-1 text-[11px] text-[#7248B9] hover:underline cursor-pointer"
               >
                 <Plus className="w-3 h-3" />
                 <span>Add Question</span>
@@ -473,9 +645,7 @@ export function GoogleFormsTriggerConfig({
                     value={q.title}
                     onChange={(e) =>
                       setNewQuestions((prev) =>
-                        prev.map((item) =>
-                          item.id === q.id ? { ...item, title: e.target.value } : item
-                        )
+                        prev.map((item) => (item.id === q.id ? { ...item, title: e.target.value } : item))
                       )
                     }
                     placeholder="Question title (e.g. Full Name)"
@@ -487,9 +657,7 @@ export function GoogleFormsTriggerConfig({
                       checked={q.required}
                       onChange={(e) =>
                         setNewQuestions((prev) =>
-                          prev.map((item) =>
-                            item.id === q.id ? { ...item, required: e.target.checked } : item
-                          )
+                          prev.map((item) => (item.id === q.id ? { ...item, required: e.target.checked } : item))
                         )
                       }
                       className="rounded border-[#444444] bg-[#222222] text-[#7248B9] focus:ring-0"
@@ -499,7 +667,7 @@ export function GoogleFormsTriggerConfig({
                   <button
                     type="button"
                     onClick={() => setNewQuestions((prev) => prev.filter((item) => item.id !== q.id))}
-                    className="text-[#606060] hover:text-red-400 p-1"
+                    className="text-[#606060] hover:text-red-400 p-1 cursor-pointer"
                     title="Remove question"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -522,7 +690,7 @@ export function GoogleFormsTriggerConfig({
               type="button"
               onClick={handleCreateForm}
               disabled={isCreating || !credentialId || !newTitle.trim()}
-              className="flex-1 py-2 px-3 bg-[#7248B9] hover:bg-[#8356d4] text-white text-xs font-semibold rounded-[8px] transition-all flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
+              className="flex-1 py-2 px-3 bg-[#7248B9] hover:bg-[#8356d4] text-white text-xs font-semibold rounded-[8px] transition-all flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
             >
               {isCreating ? (
                 <>
@@ -539,7 +707,7 @@ export function GoogleFormsTriggerConfig({
             <button
               type="button"
               onClick={() => setMode('select')}
-              className="py-2 px-3 bg-[#202020] hover:bg-[#282828] text-white text-xs rounded-[8px] transition-all"
+              className="py-2 px-3 bg-[#202020] hover:bg-[#282828] text-white text-xs rounded-[8px] transition-all cursor-pointer"
             >
               Cancel
             </button>
@@ -565,7 +733,7 @@ export function GoogleFormsTriggerConfig({
             type="button"
             onClick={() => handleTestTrigger()}
             disabled={isTesting || !credentialId || !formId}
-            className="w-full py-2 px-3 bg-[#202020] hover:bg-[#282828] border border-[#333333] text-white text-xs font-semibold rounded-[8px] transition-all flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
+            className="w-full py-2 px-3 bg-[#202020] hover:bg-[#282828] border border-[#333333] text-white text-xs font-semibold rounded-[8px] transition-all flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
           >
             {isTesting ? (
               <>
@@ -629,7 +797,7 @@ export function GoogleFormsTriggerConfig({
               <button
                 type="button"
                 onClick={() => setShowJsonPayload((prev) => !prev)}
-                className="flex items-center gap-1 text-[11px] text-[#808080] hover:text-white transition-colors"
+                className="flex items-center gap-1 text-[11px] text-[#808080] hover:text-white transition-colors cursor-pointer"
               >
                 <span>{showJsonPayload ? 'Hide' : 'View'} Sample Payload (JSON)</span>
                 {showJsonPayload ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
@@ -649,7 +817,8 @@ export function GoogleFormsTriggerConfig({
       <div className="p-3.5 rounded-[12px] bg-[#141414] border border-[#222222] flex items-start gap-2 text-[#808080] text-[11px] leading-relaxed">
         <Info className="w-3.5 h-3.5 text-[#7248B9] shrink-0 mt-0.5" />
         <span>
-          When activated, VULP polls every 30 seconds for new submissions and strictly deduplicates by Response ID. Each form submission executes this workflow once.
+          When activated, VULP automatically detects new submissions and strictly deduplicates by Response ID. Each form
+          submission executes this workflow once.
         </span>
       </div>
     </div>

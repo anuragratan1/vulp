@@ -62,6 +62,7 @@ googleApp.get('/api/auth/google', async (c) => {
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/drive.readonly',
     'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/forms.responses.readonly',
     'https://www.googleapis.com/auth/forms.body',
@@ -593,25 +594,42 @@ googleApp.get('/api/integrations/google/forms', async (c) => {
 // Get Google Form Details & Questions
 googleApp.get('/api/integrations/google/forms/:id', async (c) => {
   const credId = c.req.query('credentialId');
-  const formId = c.req.param('id');
+  let formId = c.req.param('id');
+  const match = formId.match(/\/forms\/d\/(?:e\/)?([a-zA-Z0-9-_]+)/);
+  if (match && match[1]) formId = match[1];
+
   try {
     const token = await getGoogleToken(c, credId);
     const url = `https://forms.googleapis.com/v1/forms/${encodeURIComponent(formId)}`;
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) {
       const text = await res.text();
-      return c.json({ error: text }, res.status as any);
+      let errorMsg = text;
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed.error?.message) {
+          errorMsg = parsed.error.message;
+        }
+      } catch {}
+      return c.json({ success: false, error: errorMsg }, res.status as any);
     }
     const data: any = await res.json();
     const questions: any[] = [];
     for (const item of data.items || []) {
       if (item.questionItem?.question) {
+        const q = item.questionItem.question;
+        let qType = 'TEXT';
+        if (q.textQuestion?.paragraph) qType = 'PARAGRAPH';
+        else if (q.choiceQuestion?.type) qType = q.choiceQuestion.type;
+        else if (q.scaleQuestion) qType = 'SCALE';
+        else if (q.dateQuestion) qType = 'DATE';
+
         questions.push({
-          id: item.questionItem.question.questionId || item.itemId,
+          id: q.questionId || item.itemId,
           itemId: item.itemId,
           title: item.title || 'Untitled Question',
-          type: Object.keys(item.questionItem.question).find((k) => k.endsWith('Question')) || 'text',
-          required: Boolean(item.questionItem.question.required),
+          type: qType,
+          required: Boolean(q.required),
         });
       }
     }
@@ -622,12 +640,271 @@ googleApp.get('/api/integrations/google/forms/:id', async (c) => {
         id: data.formId,
         title: data.info?.title || 'Google Form',
         description: data.info?.description || '',
-        responderUri: data.responderUri || '',
+        responderUri: data.responderUri || `https://docs.google.com/forms/d/${formId}/viewform`,
+        webViewLink: `https://docs.google.com/forms/d/${formId}/edit`,
         questions,
       },
     });
   } catch (err: any) {
-    return c.json({ error: err.message }, 400);
+    return c.json({ success: false, error: err.message }, 400);
+  }
+});
+
+// Create Google Form Natively
+googleApp.post('/api/integrations/google/forms', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { credentialId, title, questions } = body;
+  if (!credentialId) {
+    return c.json({ success: false, error: 'credentialId is required' }, 400);
+  }
+
+  try {
+    const token = await getGoogleToken(c, credentialId);
+
+    // 1. Create form
+    const createRes = await fetch('https://forms.googleapis.com/v1/forms', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        info: {
+          title: title || 'Customer Lead Form',
+          documentTitle: title || 'Customer Lead Form',
+        },
+      }),
+    });
+
+    if (!createRes.ok) {
+      const errText = await createRes.text();
+      let msg = errText;
+      try {
+        const parsed = JSON.parse(errText);
+        msg = parsed.error?.message || errText;
+      } catch {}
+      return c.json({ success: false, error: msg }, createRes.status as any);
+    }
+
+    const created: any = await createRes.json();
+    const formId = created.formId;
+
+    // 2. Add question items if provided
+    const targetQuestions =
+      questions && questions.length > 0
+        ? questions
+        : [
+            { title: 'Lead ID', required: true, type: 'TEXT' },
+            { title: 'Name', required: true, type: 'TEXT' },
+            { title: 'Email', required: true, type: 'TEXT' },
+            { title: 'Phone', required: false, type: 'TEXT' },
+            { title: 'Score', required: false, type: 'TEXT' },
+            { title: 'Source', required: false, type: 'TEXT' },
+          ];
+
+    const requests = targetQuestions.map((q: any, idx: number) => ({
+      createItem: {
+        item: {
+          title: q.title.trim(),
+          questionItem: {
+            question: {
+              required: Boolean(q.required),
+              textQuestion: {
+                paragraph: q.type === 'PARAGRAPH',
+              },
+            },
+          },
+        },
+        location: {
+          index: idx,
+        },
+      },
+    }));
+
+    if (requests.length > 0) {
+      const batchUrl = `https://forms.googleapis.com/v1/forms/${encodeURIComponent(formId)}:batchUpdate`;
+      await fetch(batchUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ requests }),
+      });
+    }
+
+    // 3. Fetch full form details and return
+    const getRes = await fetch(`https://forms.googleapis.com/v1/forms/${encodeURIComponent(formId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const getData: any = await getRes.json();
+    const parsedQuestions: any[] = [];
+    for (const item of getData.items || []) {
+      if (item.questionItem?.question) {
+        parsedQuestions.push({
+          id: item.questionItem.question.questionId || item.itemId,
+          itemId: item.itemId,
+          title: item.title || 'Untitled Question',
+          required: Boolean(item.questionItem.question.required),
+          type: item.questionItem.question.textQuestion?.paragraph ? 'PARAGRAPH' : 'TEXT',
+        });
+      }
+    }
+
+    return c.json({
+      success: true,
+      form: {
+        id: getData.formId,
+        title: getData.info?.title || title || 'Google Form',
+        description: getData.info?.description || '',
+        responderUri: getData.responderUri || `https://docs.google.com/forms/d/${formId}/viewform`,
+        webViewLink: `https://docs.google.com/forms/d/${formId}/edit`,
+        questions: parsedQuestions,
+      },
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 400);
+  }
+});
+
+// Test Google Form Trigger (fetch live response or synthesize sample schema)
+googleApp.post('/api/integrations/google/forms/:id/test', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { credentialId } = body;
+  let formId = c.req.param('id');
+  const match = formId.match(/\/forms\/d\/(?:e\/)?([a-zA-Z0-9-_]+)/);
+  if (match && match[1]) formId = match[1];
+
+  if (!credentialId) {
+    return c.json({ success: false, error: 'credentialId is required' }, 400);
+  }
+
+  try {
+    const token = await getGoogleToken(c, credentialId);
+
+    // 1. Get form details
+    const formUrl = `https://forms.googleapis.com/v1/forms/${encodeURIComponent(formId)}`;
+    const formRes = await fetch(formUrl, { headers: { Authorization: `Bearer ${token}` } });
+    if (!formRes.ok) {
+      const errText = await formRes.text();
+      let msg = errText;
+      try {
+        const parsed = JSON.parse(errText);
+        msg = parsed.error?.message || errText;
+      } catch {}
+      return c.json({ success: false, error: msg }, formRes.status as any);
+    }
+    const formData: any = await formRes.json();
+    const questions: any[] = [];
+    for (const item of formData.items || []) {
+      if (item.questionItem?.question) {
+        questions.push({
+          id: item.questionItem.question.questionId || item.itemId,
+          itemId: item.itemId,
+          title: item.title || 'Untitled Question',
+          required: Boolean(item.questionItem.question.required),
+          type: item.questionItem.question.textQuestion?.paragraph ? 'PARAGRAPH' : 'TEXT',
+        });
+      }
+    }
+
+    const formDetails = {
+      id: formData.formId,
+      title: formData.info?.title || 'Google Form',
+      description: formData.info?.description || '',
+      responderUri: formData.responderUri || `https://docs.google.com/forms/d/${formId}/viewform`,
+      webViewLink: `https://docs.google.com/forms/d/${formId}/edit`,
+      questions,
+    };
+
+    // 2. Fetch live responses if any
+    const respUrl = `https://forms.googleapis.com/v1/forms/${encodeURIComponent(formId)}/responses`;
+    const respRes = await fetch(respUrl, { headers: { Authorization: `Bearer ${token}` } });
+    let liveResponses: any[] = [];
+    if (respRes.ok) {
+      const rData: any = await respRes.json();
+      if (Array.isArray(rData.responses)) {
+        liveResponses = rData.responses;
+      }
+    }
+
+    let isLive = false;
+    let sample: Record<string, any> = {};
+
+    if (liveResponses.length > 0) {
+      isLive = true;
+      const latest = liveResponses[liveResponses.length - 1];
+      const answersMap: Record<string, any> = {};
+      const topLevelProps: Record<string, any> = {};
+      const rawAnswers = latest.answers || {};
+
+      for (const q of questions) {
+        const ansObj = rawAnswers[q.id];
+        let val: any = '';
+        if (ansObj?.textAnswers?.answers && Array.isArray(ansObj.textAnswers.answers)) {
+          const textVals = ansObj.textAnswers.answers.map((a: any) => a.value);
+          val = textVals.length > 1 ? textVals : textVals[0] ?? '';
+        }
+        answersMap[q.title] = val;
+        const normKey = q.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+        topLevelProps[normKey || 'field'] = val;
+        topLevelProps[q.title] = val;
+      }
+
+      sample = {
+        responseId: latest.responseId || `resp_${Date.now()}`,
+        formId: formDetails.id,
+        formTitle: formDetails.title,
+        submittedAt: latest.lastSubmittedTime || latest.createTime || new Date().toISOString(),
+        respondentEmail: latest.respondentEmail || '',
+        ...topLevelProps,
+        answers: answersMap,
+      };
+    } else {
+      // Synthesize sample response using the form questions
+      const answersMap: Record<string, any> = {};
+      const topLevelProps: Record<string, any> = {};
+
+      for (const q of questions) {
+        const titleLower = q.title.toLowerCase();
+        let val: any = 'Sample Response';
+        if (titleLower.includes('name')) val = 'Sarah Connor';
+        else if (titleLower.includes('email')) val = 'sarah.c@sky.net';
+        else if (titleLower.includes('phone') || titleLower.includes('mobile')) val = '+1-555-0199';
+        else if (titleLower.includes('id')) val = 'LEAD-101';
+        else if (titleLower.includes('score')) val = 95;
+        else if (titleLower.includes('source')) val = 'Website Intake';
+
+        answersMap[q.title] = val;
+        const normKey = q.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+        topLevelProps[normKey || 'field'] = val;
+        topLevelProps[q.title] = val;
+      }
+
+      if (!topLevelProps.name) topLevelProps.name = 'Sarah Connor';
+      if (!topLevelProps.email) topLevelProps.email = 'sarah.c@sky.net';
+      if (!topLevelProps.leadId) topLevelProps.leadId = 'LEAD-101';
+
+      sample = {
+        responseId: `sample_resp_${Date.now()}`,
+        formId: formDetails.id,
+        formTitle: formDetails.title,
+        submittedAt: new Date().toISOString(),
+        respondentEmail: 'sarah.c@sky.net',
+        ...topLevelProps,
+        answers: answersMap,
+      };
+    }
+
+    return c.json({
+      success: true,
+      isLive,
+      sample,
+      form: formDetails,
+      message: isLive ? 'Loaded latest submitted response from Google Form' : 'Generated sample schema from questions',
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 400);
   }
 });
 
