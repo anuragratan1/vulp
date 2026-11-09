@@ -1,6 +1,7 @@
 import { ChevronDown, CheckCircle2, XCircle } from 'lucide-react';
-import { FormFieldWrapper } from './FormFieldWrapper.js';
-import { CanvasNode } from '../graphConverter.js';
+import { CanvasNode, CanvasEdge } from '../graphConverter.js';
+import { NodeRunRecord } from '../../api/client.js';
+import { SmartInput } from './SmartInput.js';
 
 export interface UniversalConditionBuilderProps {
   left: string;
@@ -8,6 +9,8 @@ export interface UniversalConditionBuilderProps {
   right: string;
   onChange: (updates: { left?: string; operator?: string; right?: string }) => void;
   allNodes?: CanvasNode[];
+  edges?: CanvasEdge[];
+  nodeRuns?: NodeRunRecord[];
   currentNodeId?: string;
   className?: string;
 }
@@ -18,6 +21,8 @@ export function UniversalConditionBuilder({
   right = '',
   onChange,
   allNodes = [],
+  edges = [],
+  nodeRuns = [],
   currentNodeId = '',
   className = '',
 }: UniversalConditionBuilderProps) {
@@ -42,24 +47,19 @@ export function UniversalConditionBuilder({
   return (
     <div className={`space-y-4 text-xs font-sans ${className}`}>
       {/* 1. Left Operand */}
-      <FormFieldWrapper
+      <SmartInput
         label="Value to Check (Left Operand)"
         required={true}
-        description="Select data from a previous step or enter a value."
-        allowDynamicData={true}
-        allNodes={allNodes}
-        currentNodeId={currentNodeId}
-        onInsertDynamic={(expr) => onChange({ left: expr })}
+        description="Select data from a previous step or enter a value (type @ to insert variable)."
         value={left}
-      >
-        <input
-          type="text"
-          value={left}
-          onChange={(e) => onChange({ left: e.target.value })}
-          placeholder="e.g. {{ webhook_lead.body.score }} or 100"
-          className="w-full bg-[#171717] border border-[#262626] focus:border-[#4A4A4A] text-white rounded-full px-4 py-2.5 text-xs outline-none transition-all placeholder:text-[#5A5A5A]"
-        />
-      </FormFieldWrapper>
+        onChange={(val) => onChange({ left: val })}
+        placeholder="e.g. {{ webhook_lead.body.score }} or 100"
+        allNodes={allNodes}
+        edges={edges}
+        nodeRuns={nodeRuns}
+        currentNodeId={currentNodeId}
+        allowVariables={true}
+      />
 
       {/* 2. Condition Operator */}
       <div className="space-y-1.5">
@@ -82,24 +82,19 @@ export function UniversalConditionBuilder({
 
       {/* 3. Right Operand (hidden for unary operators) */}
       {!isUnary && (
-        <FormFieldWrapper
+        <SmartInput
           label="Compare Against (Right Operand)"
           required={true}
-          description="Value, number, or variable to compare with."
-          allowDynamicData={true}
-          allNodes={allNodes}
-          currentNodeId={currentNodeId}
-          onInsertDynamic={(expr) => onChange({ right: expr })}
+          description="Value, number, or variable to compare with (type @ to insert variable)."
           value={right}
-        >
-          <input
-            type="text"
-            value={right}
-            onChange={(e) => onChange({ right: e.target.value })}
-            placeholder="e.g. 80 or VIP"
-            className="w-full bg-[#171717] border border-[#262626] focus:border-[#4A4A4A] text-white rounded-full px-4 py-2.5 text-xs outline-none transition-all placeholder:text-[#5A5A5A]"
-          />
-        </FormFieldWrapper>
+          onChange={(val) => onChange({ right: val })}
+          placeholder="e.g. 80 or VIP"
+          allNodes={allNodes}
+          edges={edges}
+          nodeRuns={nodeRuns}
+          currentNodeId={currentNodeId}
+          allowVariables={true}
+        />
       )}
 
       {/* 4. Live Human Explanation Card */}

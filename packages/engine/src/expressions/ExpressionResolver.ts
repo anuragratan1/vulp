@@ -216,6 +216,10 @@ export class ExpressionResolver {
             current = current.payload;
           } else if (current.data && typeof current.data === 'object' && firstSeg in current.data) {
             current = current.data;
+          } else if (current.row && typeof current.row === 'object' && firstSeg in current.row) {
+            current = current.row;
+          } else if (current.values && typeof current.values === 'object' && firstSeg in current.values) {
+            current = current.values;
           }
         } else if (firstSeg === 'body' && segmentsToTraverse.length > 1 && !('body' in current)) {
           // If accessing {{ trigger.body.field }} but trigger object is flat
@@ -236,6 +240,10 @@ export class ExpressionResolver {
             current = current.payload;
           } else if (current.data && typeof current.data === 'object' && firstSeg in current.data) {
             current = current.data;
+          } else if (current.row && typeof current.row === 'object' && firstSeg in current.row) {
+            current = current.row;
+          } else if (current.values && typeof current.values === 'object' && firstSeg in current.values) {
+            current = current.values;
           }
         } else if (firstSeg === 'body' && segmentsToTraverse.length > 1 && !('body' in current)) {
           segmentsToTraverse = segmentsToTraverse.slice(1);
@@ -260,6 +268,12 @@ export class ExpressionResolver {
               current = current.body;
             } else if (current.payload && typeof current.payload === 'object' && firstSeg in current.payload) {
               current = current.payload;
+            } else if (current.data && typeof current.data === 'object' && firstSeg in current.data) {
+              current = current.data;
+            } else if (current.row && typeof current.row === 'object' && firstSeg in current.row) {
+              current = current.row;
+            } else if (current.values && typeof current.values === 'object' && firstSeg in current.values) {
+              current = current.values;
             }
           }
         }

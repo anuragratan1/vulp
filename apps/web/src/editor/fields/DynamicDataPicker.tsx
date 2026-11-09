@@ -8,9 +8,10 @@ import {
   X,
   Variable,
 } from 'lucide-react';
-import { CanvasNode } from '../graphConverter.js';
+import { CanvasNode, CanvasEdge } from '../graphConverter.js';
+import { NodeRunRecord } from '../../api/client.js';
 import { ServiceIcon } from '../../components/ServiceIcons.js';
-import { extractFieldsFromData } from './dynamicVariableDiscovery.js';
+import { discoverWorkflowVariables } from './dynamicVariableDiscovery.js';
 
 export interface DynamicSourceField {
   label: string; // Human readable, e.g. "Customer Email"
@@ -25,6 +26,8 @@ export interface DynamicSourceField {
 
 export interface DynamicDataPickerProps {
   allNodes?: CanvasNode[];
+  edges?: CanvasEdge[];
+  nodeRuns?: NodeRunRecord[];
   currentNodeId: string;
   onSelect: (expression: string, field: DynamicSourceField) => void;
   onClose?: () => void;
@@ -32,6 +35,8 @@ export interface DynamicDataPickerProps {
 
 export function DynamicDataPicker({
   allNodes = [],
+  edges = [],
+  nodeRuns = [],
   currentNodeId,
   onSelect,
   onClose,
@@ -39,10 +44,15 @@ export function DynamicDataPicker({
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
 
-  // Discover all upstream/previous workflow steps
+  // Discover all upstream/previous workflow steps dynamically
   const sourceGroups = useMemo(() => {
-    // Exclude current node from output sources
-    const eligibleNodes = allNodes.filter((n) => n.id !== currentNodeId);
+    const rawGroups = discoverWorkflowVariables({
+      currentNodeId,
+      allNodes,
+      edges,
+      nodeRuns,
+      includeSystem: true,
+    });
 
     const groups: Array<{
       nodeId: string;
@@ -51,370 +61,66 @@ export function DynamicDataPicker({
       fields: DynamicSourceField[];
     }> = [];
 
-    for (const node of eligibleNodes) {
-      const type = node.data.type;
-      const nodeName = node.data.name || node.data.key || node.id;
-      const nodeKey = node.data.key || node.id;
+    for (const group of rawGroups) {
+      const fields: DynamicSourceField[] = group.variables.map((v) => ({
+        label: v.label,
+        path: v.path,
+        expression: v.rawExpression,
+        type: v.type,
+        sampleValue: v.sampleValue ? String(v.sampleValue) : undefined,
+        sourceNodeId: group.nodeId,
+        sourceNodeName: group.nodeName,
+        sourceNodeType: group.nodeType,
+      }));
 
-      const fields: DynamicSourceField[] = [];
-
-      // Determine fields based on node type
-      if (type === 'webhook.trigger') {
-        const rawPayload =
-          node.data.params?.samplePayload ??
-          node.data.params?.lastPayload ??
-          node.data.params?.payload;
-
-        if (rawPayload) {
-          let parsed = rawPayload;
-          if (typeof rawPayload === 'string') {
-            try {
-              parsed = JSON.parse(rawPayload);
-            } catch {
-              parsed = { text: rawPayload };
-            }
-          }
-          if (parsed && typeof parsed === 'object') {
-            const root =
-              'body' in parsed || 'headers' in parsed || 'query' in parsed
-                ? parsed
-                : { body: parsed };
-            const extracted = extractFieldsFromData(root, nodeKey, nodeName, type, 'sample');
-            for (const item of extracted) {
-              fields.push({
-                label: item.label,
-                path: item.path,
-                expression: item.rawExpression,
-                type: item.type,
-                sampleValue: item.sampleValue ? String(item.sampleValue) : undefined,
-                sourceNodeId: node.id,
-                sourceNodeName: nodeName,
-                sourceNodeType: type,
-              });
-            }
-          }
-        } else {
-          fields.push(
-            {
-              label: 'Full Request Body',
-              path: 'body',
-              expression: `{{ ${nodeKey}.body }}`,
-              type: 'object',
-              sampleValue: '(Waiting for test webhook)',
-              sourceNodeId: node.id,
-              sourceNodeName: nodeName,
-              sourceNodeType: type,
-            },
-            {
-              label: 'Request Headers',
-              path: 'headers',
-              expression: `{{ ${nodeKey}.headers }}`,
-              type: 'object',
-              sampleValue: '{ ... }',
-              sourceNodeId: node.id,
-              sourceNodeName: nodeName,
-              sourceNodeType: type,
-            },
-            {
-              label: 'URL Query Parameters',
-              path: 'query',
-              expression: `{{ ${nodeKey}.query }}`,
-              type: 'object',
-              sampleValue: '{ ... }',
-              sourceNodeId: node.id,
-              sourceNodeName: nodeName,
-              sourceNodeType: type,
-            }
-          );
+      // If this is Google Sheets and has mapped column values in params, ensure those mapped column headers are also exposed
+      const node = allNodes.find((n) => n.id === group.nodeId);
+      if (node && node.data.type?.startsWith('sheets.') && node.data.params?.values) {
+        const rawValues = node.data.params.values;
+        let parsedValues: Record<string, any> = {};
+        if (typeof rawValues === 'object' && !Array.isArray(rawValues) && rawValues !== null) {
+          parsedValues = rawValues;
+        } else if (typeof rawValues === 'string') {
+          try {
+            parsedValues = JSON.parse(rawValues);
+          } catch {}
         }
-      } else if (type === 'manual.trigger') {
-        const payload = node.data.params?.payload;
-        if (payload && typeof payload === 'object' && Object.keys(payload).length > 0) {
-          for (const [k, v] of Object.entries(payload)) {
-            fields.push({
-              label: k.charAt(0).toUpperCase() + k.slice(1),
-              path: `payload.${k}`,
-              expression: `{{ ${nodeKey}.${k} }}`,
-              type: typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'boolean' : 'string',
-              sampleValue: String(v),
-              sourceNodeId: node.id,
-              sourceNodeName: nodeName,
-              sourceNodeType: type,
+        for (const [colName, colVal] of Object.entries(parsedValues)) {
+          if (!colName.trim()) continue;
+          const colClean = colName.trim();
+          const colPath = `row["${colClean.replace(/"/g, '\\"')}"]`;
+          const colExpr = `{{ ${group.nodeKey}["${colClean.replace(/"/g, '\\"')}"] }}`;
+          if (!fields.some((f) => f.label.toLowerCase() === colClean.toLowerCase())) {
+            fields.unshift({
+              label: colClean,
+              path: colPath,
+              expression: colExpr,
+              type: 'string',
+              sampleValue: typeof colVal === 'string' && colVal.startsWith('{{') ? undefined : String(colVal),
+              sourceNodeId: group.nodeId,
+              sourceNodeName: group.nodeName,
+              sourceNodeType: group.nodeType,
             });
           }
-        } else {
-          fields.push(
-            {
-              label: 'Trigger Lead ID',
-              path: 'leadId',
-              expression: `{{ ${nodeKey}.leadId }}`,
-              type: 'string',
-              sampleValue: '"LEAD-402"',
-              sourceNodeId: node.id,
-              sourceNodeName: nodeName,
-              sourceNodeType: type,
-            },
-            {
-              label: 'Trigger Email',
-              path: 'email',
-              expression: `{{ ${nodeKey}.email }}`,
-              type: 'string',
-              sampleValue: '"alex@example.com"',
-              sourceNodeId: node.id,
-              sourceNodeName: nodeName,
-              sourceNodeType: type,
-            },
-            {
-              label: 'Trigger Amount / Score',
-              path: 'amount',
-              expression: `{{ ${nodeKey}.amount }}`,
-              type: 'number',
-              sampleValue: '150',
-              sourceNodeId: node.id,
-              sourceNodeName: nodeName,
-              sourceNodeType: type,
-            }
-          );
         }
-      } else if (type === 'schedule.trigger') {
-        fields.push(
-          {
-            label: 'Execution ISO Timestamp',
-            path: 'timestamp',
-            expression: `{{ ${nodeKey}.timestamp }}`,
-            type: 'string',
-            sampleValue: '"2026-11-06T10:00:00.000Z"',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          },
-          {
-            label: 'Cron Rule',
-            path: 'cron',
-            expression: `{{ ${nodeKey}.cron }}`,
-            type: 'string',
-            sampleValue: '"0 * * * *"',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          }
-        );
-      } else if (type === 'http.request') {
-        fields.push(
-          {
-            label: 'Response Body / Data',
-            path: 'data',
-            expression: `{{ ${nodeKey}.data }}`,
-            type: 'object',
-            sampleValue: '{ "id": "101", "status": "ok" }',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          },
-          {
-            label: 'Response Status Code',
-            path: 'status',
-            expression: `{{ ${nodeKey}.status }}`,
-            type: 'number',
-            sampleValue: '200',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          },
-          {
-            label: 'Response Item ID',
-            path: 'data.id',
-            expression: `{{ ${nodeKey}.data.id }}`,
-            type: 'string',
-            sampleValue: '"REC-884"',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          }
-        );
-      } else if (type === 'logic.if') {
-        fields.push({
-          label: 'Condition Evaluation Result',
-          path: 'result',
-          expression: `{{ ${nodeKey}.result }}`,
-          type: 'boolean',
-          sampleValue: 'true',
-          sourceNodeId: node.id,
-          sourceNodeName: nodeName,
-          sourceNodeType: type,
-        });
-      } else if (type.startsWith('sheets.')) {
-        fields.push(
-          {
-            label: 'Read Rows List',
-            path: 'rows',
-            expression: `{{ ${nodeKey}.rows }}`,
-            type: 'array',
-            sampleValue: '[ { "Name": "Alex", "Email": "..." } ]',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          },
-          {
-            label: 'Total Rows Count',
-            path: 'totalRows',
-            expression: `{{ ${nodeKey}.totalRows }}`,
-            type: 'number',
-            sampleValue: '14',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          },
-          {
-            label: 'Updated Spreadsheet Range',
-            path: 'updatedRange',
-            expression: `{{ ${nodeKey}.updatedRange }}`,
-            type: 'string',
-            sampleValue: '"Sheet1!A12:D12"',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          }
-        );
-      } else if (type === 'gmail.sendEmail') {
-        fields.push({
-          label: 'Sent Message ID',
-          path: 'messageId',
-          expression: `{{ ${nodeKey}.messageId }}`,
-          type: 'string',
-          sampleValue: '"18be75c02b1a9f02"',
-          sourceNodeId: node.id,
-          sourceNodeName: nodeName,
-          sourceNodeType: type,
-        });
-      } else if (type.startsWith('drive.')) {
-        fields.push(
-          {
-            label: 'Uploaded File ID',
-            path: 'fileId',
-            expression: `{{ ${nodeKey}.fileId }}`,
-            type: 'string',
-            sampleValue: '"1A2b3C4d5E6f_GoogleDriveId"',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          },
-          {
-            label: 'Web View Link',
-            path: 'webViewLink',
-            expression: `{{ ${nodeKey}.webViewLink }}`,
-            type: 'string',
-            sampleValue: '"https://drive.google.com/file/d/..."',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          }
-        );
-      } else if (type === 'calendar.createEvent') {
-        fields.push(
-          {
-            label: 'Calendar Event ID',
-            path: 'eventId',
-            expression: `{{ ${nodeKey}.eventId }}`,
-            type: 'string',
-            sampleValue: '"cal_evt_991823"',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          },
-          {
-            label: 'Event Web URL',
-            path: 'htmlLink',
-            expression: `{{ ${nodeKey}.htmlLink }}`,
-            type: 'string',
-            sampleValue: '"https://calendar.google.com/event?eid=..."',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          }
-        );
-      } else if (type === 'github.createIssue') {
-        fields.push(
-          {
-            label: 'Issue Number',
-            path: 'issueNumber',
-            expression: `{{ ${nodeKey}.issueNumber }}`,
-            type: 'number',
-            sampleValue: '#42',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          },
-          {
-            label: 'Issue URL',
-            path: 'htmlUrl',
-            expression: `{{ ${nodeKey}.htmlUrl }}`,
-            type: 'string',
-            sampleValue: '"https://github.com/org/repo/issues/42"',
-            sourceNodeId: node.id,
-            sourceNodeName: nodeName,
-            sourceNodeType: type,
-          }
-        );
-      } else {
-        // Generic fallback fields
-        fields.push({
-          label: `${nodeName} Output`,
-          path: 'output',
-          expression: `{{ ${nodeKey}.output }}`,
-          type: 'object',
-          sampleValue: '{ ... }',
-          sourceNodeId: node.id,
-          sourceNodeName: nodeName,
-          sourceNodeType: type,
-        });
       }
 
       groups.push({
-        nodeId: node.id,
-        nodeName,
-        nodeType: type,
+        nodeId: group.nodeId,
+        nodeName: group.nodeName,
+        nodeType: group.nodeType,
         fields,
       });
     }
 
-    // Add System Values group
-    groups.push({
-      nodeId: '__system__',
-      nodeName: 'System & Date Values',
-      nodeType: 'system',
-      fields: [
-        {
-          label: 'Current Timestamp ($now)',
-          path: '$now',
-          expression: '{{ $now }}',
-          type: 'string',
-          sampleValue: new Date().toISOString(),
-          sourceNodeId: '__system__',
-          sourceNodeName: 'System',
-          sourceNodeType: 'system',
-        },
-        {
-          label: "Today's Date (YYYY-MM-DD)",
-          path: '$today',
-          expression: '{{ $now }}',
-          type: 'string',
-          sampleValue: new Date().toISOString().slice(0, 10),
-          sourceNodeId: '__system__',
-          sourceNodeName: 'System',
-          sourceNodeType: 'system',
-        },
-      ],
-    });
-
     return groups;
-  }, [allNodes, currentNodeId]);
+  }, [allNodes, edges, nodeRuns, currentNodeId]);
 
   // Toggle node expansion
   const toggleNode = (nodeId: string) => {
     setExpandedNodes((prev) => ({
       ...prev,
-      [nodeId]: prev[nodeId] === undefined ? false : !prev[nodeId],
+      [nodeId]: !(prev[nodeId] ?? true),
     }));
   };
 
@@ -430,6 +136,7 @@ export function DynamicDataPicker({
           (f) =>
             f.label.toLowerCase().includes(q) ||
             f.path.toLowerCase().includes(q) ||
+            f.expression.toLowerCase().includes(q) ||
             f.sourceNodeName.toLowerCase().includes(q)
         ),
       }))

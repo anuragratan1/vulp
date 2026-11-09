@@ -3,13 +3,16 @@ import {
   UniversalConditionBuilder,
   UniversalDurationInput,
 } from '../fields/index.js';
-import { CanvasNode } from '../graphConverter.js';
+import { CanvasNode, CanvasEdge } from '../graphConverter.js';
+import { NodeRunRecord } from '../../api/client.js';
 
 interface LogicConfigProps {
   node: CanvasNode;
   params: Record<string, any>;
   onParamChange: (key: string, value: any) => void;
   allNodes?: CanvasNode[];
+  edges?: CanvasEdge[];
+  nodeRuns?: NodeRunRecord[];
 }
 
 // 1. IF / ELSE Branching Node
@@ -18,6 +21,8 @@ export function IfNodeConfig({
   params,
   onParamChange,
   allNodes = [],
+  edges = [],
+  nodeRuns = [],
 }: LogicConfigProps) {
   const left = String(params.left ?? '');
   const operator = String(params.operator ?? 'equals');
@@ -42,6 +47,8 @@ export function IfNodeConfig({
           if (updates.right !== undefined) onParamChange('right', updates.right);
         }}
         allNodes={allNodes}
+        edges={edges}
+        nodeRuns={nodeRuns}
         currentNodeId={node.id}
       />
     </div>

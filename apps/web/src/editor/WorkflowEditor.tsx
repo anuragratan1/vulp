@@ -101,6 +101,13 @@ export function WorkflowEditor({
   const [isActivating, setIsActivating] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
 
+  const nameRef = useRef(workflow.name);
+  nameRef.current = name;
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
+
   // Helper to generate state signature for comparison
   const getGraphSignature = useCallback((title: string, nds: CanvasNode[], eds: CanvasEdge[]) => {
     return JSON.stringify({
@@ -536,9 +543,20 @@ export function WorkflowEditor({
     nodesOverride?: CanvasNode[],
     edgesOverride?: CanvasEdge[]
   ): Promise<WorkflowRecord | null> => {
-    const currentName = explicitName !== undefined ? explicitName : name;
-    const currentNodes = nodesOverride || nodes;
-    const currentEdges = edgesOverride || edges;
+    if (explicitName !== undefined) {
+      nameRef.current = explicitName.trim();
+      setName(explicitName.trim());
+    }
+    if (nodesOverride !== undefined) {
+      nodesRef.current = nodesOverride;
+    }
+    if (edgesOverride !== undefined) {
+      edgesRef.current = edgesOverride;
+    }
+
+    const currentName = explicitName !== undefined ? explicitName.trim() : nameRef.current;
+    const currentNodes = nodesOverride || nodesRef.current;
+    const currentEdges = edgesOverride || edgesRef.current;
     const targetSignature = getGraphSignature(currentName, currentNodes, currentEdges);
 
     if (inflightSaveRef.current) {
@@ -563,7 +581,7 @@ export function WorkflowEditor({
       });
 
       // Check if new modifications occurred while this save was in flight
-      const latestSignature = getGraphSignature(name, nodes, edges);
+      const latestSignature = getGraphSignature(nameRef.current, nodesRef.current, edgesRef.current);
       if (latestSignature !== targetSignature || pendingSaveRef.current) {
         inflightSaveRef.current = false;
         pendingSaveRef.current = false;
@@ -1009,6 +1027,7 @@ export function WorkflowEditor({
           <EditableWorkflowTitle
             name={name}
             onSaveName={(newName) => {
+              nameRef.current = newName;
               setName(newName);
               setIsDirty(true);
               performSave(newName);

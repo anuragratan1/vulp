@@ -442,6 +442,8 @@ export function RichTextEmailEditor({
               <DropdownMenu.Content side="bottom" align="end" sideOffset={6} className="z-50">
                 <DynamicDataPicker
                   allNodes={allNodes}
+                  edges={edges}
+                  nodeRuns={nodeRuns}
                   currentNodeId={currentNodeId}
                   onSelect={(expr) => {
                     handleInsertVariable(expr);

@@ -397,6 +397,8 @@ export function NodeConfigPanel({
             params={params}
             onParamChange={handleParamChange}
             allNodes={allNodes}
+            edges={edges}
+            nodeRuns={nodeRuns}
           />
         );
       case 'logic.delay':

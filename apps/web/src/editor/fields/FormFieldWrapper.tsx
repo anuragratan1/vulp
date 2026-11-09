@@ -3,7 +3,8 @@ import { Variable, AlertCircle } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { DynamicDataPicker, DynamicSourceField } from './DynamicDataPicker.js';
 import { VariableChip } from './VariableChip.js';
-import { CanvasNode } from '../graphConverter.js';
+import { CanvasNode, CanvasEdge } from '../graphConverter.js';
+import { NodeRunRecord } from '../../api/client.js';
 
 export interface FormFieldWrapperProps {
   label: string;
@@ -13,6 +14,8 @@ export interface FormFieldWrapperProps {
   error?: string;
   allowDynamicData?: boolean;
   allNodes?: CanvasNode[];
+  edges?: CanvasEdge[];
+  nodeRuns?: NodeRunRecord[];
   currentNodeId?: string;
   onInsertDynamic?: (expression: string, field: DynamicSourceField) => void;
   children: React.ReactNode;
@@ -28,6 +31,8 @@ export function FormFieldWrapper({
   error,
   allowDynamicData = true,
   allNodes = [],
+  edges = [],
+  nodeRuns = [],
   currentNodeId = '',
   onInsertDynamic,
   children,
@@ -80,6 +85,8 @@ export function FormFieldWrapper({
               >
                 <DynamicDataPicker
                   allNodes={allNodes}
+                  edges={edges}
+                  nodeRuns={nodeRuns}
                   currentNodeId={currentNodeId}
                   onSelect={(expr, field) => {
                     onInsertDynamic(expr, field);

@@ -158,6 +158,11 @@ export class SheetsAppendRowOperation implements IIntegrationOperation {
 
     ctx.log('info', `Successfully appended row (range: ${updatedRange || 'unknown'})`);
 
+    const mappedObject: Record<string, any> =
+      typeof rawValues === 'object' && rawValues !== null && !Array.isArray(rawValues)
+        ? (rawValues as Record<string, any>)
+        : {};
+
     return {
       appended: true,
       spreadsheetId,
@@ -165,6 +170,8 @@ export class SheetsAppendRowOperation implements IIntegrationOperation {
       updatedRange,
       updatedRows,
       values: sanitizedCells,
+      row: mappedObject,
+      ...mappedObject,
     };
   }
 }

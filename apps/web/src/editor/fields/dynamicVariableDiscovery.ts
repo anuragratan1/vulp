@@ -677,6 +677,16 @@ export function discoverWorkflowVariables({
                 cleanObj[k] = parsedObj[k];
               }
             }
+            // Ensure essential Google Forms metadata fields are always present
+            if (!('respondentEmail' in cleanObj)) {
+              cleanObj.respondentEmail = parsedObj.respondentEmail ?? 'respondent@example.com';
+            }
+            if (!('submittedAt' in cleanObj)) {
+              cleanObj.submittedAt = parsedObj.submittedAt ?? new Date().toISOString();
+            }
+            if (!('responseId' in cleanObj)) {
+              cleanObj.responseId = parsedObj.responseId ?? 'resp_101';
+            }
             sampleData = cleanObj;
           }
         } else if (Array.isArray(params.questions) && params.questions.length > 0) {
@@ -694,6 +704,30 @@ export function discoverWorkflowVariables({
           }
           sampleData = qData;
         }
+      } else if (nodeType === 'sheets.appendRow' || nodeType === 'sheets.updateRow') {
+        const rawValues = params.values;
+        let parsed: Record<string, any> = {};
+        if (rawValues && typeof rawValues === 'object' && !Array.isArray(rawValues)) {
+          parsed = rawValues;
+        } else if (typeof rawValues === 'string') {
+          try {
+            parsed = JSON.parse(rawValues);
+          } catch {}
+        }
+        if (parsed && typeof parsed === 'object') {
+          const colObj: Record<string, any> = {};
+          for (const [colName, colVal] of Object.entries(parsed)) {
+            const cleanCol = colName.trim();
+            if (!cleanCol) continue;
+            colObj[cleanCol] =
+              typeof colVal === 'string' && colVal.startsWith('{{')
+                ? `Sample ${cleanCol}`
+                : colVal || `Sample ${cleanCol}`;
+          }
+          if (Object.keys(colObj).length > 0) {
+            sampleData = colObj;
+          }
+        }
       }
 
       if (sampleData && typeof sampleData === 'object') {
@@ -705,7 +739,15 @@ export function discoverWorkflowVariables({
           'sample'
         );
         if (sampleVars.length > 0) {
-          discoveredVars = sanitizeDiscoveredVariables(sampleVars, node.data.params, nodeType);
+          const schemaVars =
+            nodeType === 'sheets.appendRow' || nodeType === 'sheets.updateRow'
+              ? getDefaultNodeSchema(nodeType, nodeKey, nodeName)
+              : [];
+          discoveredVars = sanitizeDiscoveredVariables(
+            [...sampleVars, ...schemaVars],
+            node.data.params,
+            nodeType
+          );
         }
       }
     }
